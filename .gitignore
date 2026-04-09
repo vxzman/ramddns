@@ -1,0 +1,14 @@
+config.json
+.env
+.env.local
+env
+bin
+cache.lastip
+*.log
+.DS_Store
+.vscode/
+*.swp
+*.swo
+要求.txt
+goddns
+build/

@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mv *)",
+      "Bash(go *)",
+      "Bash(/usr/local/go/bin/go *)",
+      "Bash(./ipflow *)",
+      "Bash(rm *)",
+      "Bash(git rm *)",
+      "Bash(git reset *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git add *)"
+    ]
+  },
+  "$version": 3
+}

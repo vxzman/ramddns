@@ -2,6 +2,7 @@
 
 [![Go Version](https://img.shields.io/badge/go-1.21-blue.svg)](https://go.dev)
 [![License](https://img.shields.io/badge/license-BSD_3--Clause-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20FreeBSD%20%7C%20OpenBSD%20%7C%20macOS-yellow)](README.md)
 
 **ipflow** 是一个用 Go 编写的轻量级动态 DNS (DDNS) 客户端，支持多域名、多服务商、IPv6，具备跨平台能力和丰富的日志输出。
 
@@ -27,7 +28,7 @@
 | ☁️ **多服务商** | 支持 Cloudflare、阿里云 DNS |
 | 🔒 **安全性** | 强制使用环境变量，禁止明文密钥 |
 | 🚀 **并发更新** | 多个域名并行更新，提高效率 |
-| 📦 **IPv6 支持** | 原生支持 IPv6，多平台接口获取 |
+| 📦 **IPv6 支持** | 原生支持 IPv6，多平台接口获取（Linux/netlink, BSD/ioctl） |
 | 🔄 **IP 缓存** | 避免重复 API 调用 |
 | 🎨 **彩色日志** | 终端下日志分级彩色显示，支持文件输出 |
 | 🌍 **代理支持** | HTTP(S)/SOCKS5 代理，记录级控制 |
@@ -385,6 +386,88 @@ sudo crontab -e
 
 ---
 
+### macOS launchd 定时
+
+macOS 使用 `launchd` 管理后台任务，支持开机启动和定时执行。
+
+#### 1. 创建配置文件
+
+```bash
+sudo mkdir -p /etc/ipflow
+sudo nano /etc/ipflow/config.json
+```
+
+#### 2. 创建 launchd plist
+
+创建 `/Library/LaunchDaemons/com.ipflow.plist`：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ipflow</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/ipflow</string>
+        <string>run</string>
+        <string>-f</string>
+        <string>/etc/ipflow/config.json</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CLOUDFLARE_API_TOKEN</key>
+        <string>your_token_here</string>
+        <key>ALIYUN_ACCESS_KEY_ID</key>
+        <string>your_access_key_id</string>
+        <key>ALIYUN_ACCESS_KEY_SECRET</key>
+        <string>your_access_key_secret</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>300</integer>  <!-- 每 300 秒（5 分钟）执行一次 -->
+    <key>RunAtLoad</key>
+    <true/>  <!-- 加载时立即执行一次 -->
+    <key>StandardOutPath</key>
+    <string>/var/log/ipflow.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/ipflow.log</string>
+</dict>
+</plist>
+```
+
+#### 3. 加载并启动
+
+```bash
+# 设置正确权限
+sudo chown root:wheel /Library/LaunchDaemons/com.ipflow.plist
+sudo chmod 644 /Library/LaunchDaemons/com.ipflow.plist
+
+# 加载服务
+sudo launchctl load /Library/LaunchDaemons/com.ipflow.plist
+
+# 验证服务状态
+sudo launchctl list | grep ipflow
+```
+
+#### 4. 管理服务
+
+```bash
+# 停止服务
+sudo launchctl unload /Library/LaunchDaemons/com.ipflow.plist
+
+# 重新加载（修改配置后）
+sudo launchctl unload /Library/LaunchDaemons/com.ipflow.plist
+sudo launchctl load /Library/LaunchDaemons/com.ipflow.plist
+
+# 查看日志
+tail -f /var/log/ipflow.log
+```
+
+> **提示**：`StartInterval` 单位为秒，300 表示每 5 分钟执行一次。也可使用 `StartCalendarInterval` 实现类似 cron 的定时表达式。
+
+---
+
 ## 平台支持
 
 | 平台 | 状态 | 说明 |
@@ -392,7 +475,9 @@ sudo crontab -e
 | Linux | ✅ | 使用 netlink 接口 |
 | FreeBSD | ✅ | 使用 ioctl 接口 |
 | OpenBSD | ✅ | 使用 ioctl 接口 |
-| macOS | ⚠️ | 暂无支持，欢迎提交 PR |
+| macOS | ⚠️ | **实验性支持**（使用 cgo + ioctl），作者无 Mac 设备测试，欢迎反馈 |
+
+> **macOS 说明**：macOS 支持目前为实验性质，使用 CGO 调用系统 ioctl 获取 IPv6 地址生命周期。理论上与 FreeBSD 兼容，但未经充分测试。如遇到问题欢迎提交 Issue。
 
 ---
 
@@ -413,6 +498,7 @@ ipflow/
 │   │   ├── linux_netlink.go
 │   │   ├── freebsd_ioctl.go
 │   │   ├── openbsd_ioctl.go
+│   │   ├── darwin_ioctl.go  # macOS 实验性支持 (CGO)
 │   │   ├── shared.go
 │   │   ├── shared_test.go
 │   │   └── util.go

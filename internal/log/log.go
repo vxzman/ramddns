@@ -68,9 +68,12 @@ var (
 // 敏感信息脱敏正则
 var (
 	// 匹配 API Token (至少 20 位字母数字)
-	tokenRegex = regexp.MustCompile(`(?i)(?:token|api[_-]?key|secret)[\s:=]+['"]?([a-zA-Z0-9_-]{20,})['"]?`)
-	// 匹配 AccessKey (如阿里云 LTAI 开头)
-	accessKeyRegex = regexp.MustCompile(`(?i)(?:access[_-]?key[_-]?id)[\s:=]+['"]?([a-zA-Z0-9]{12,})['"]?`)
+	// 支持 JSON 格式："api_token": "value" 和 key=value 格式
+	tokenRegex = regexp.MustCompile(`(?i)(?:"(?:token|api[_-]?key|secret|access[_-]?key)"\s*:\s*"|(?:(?:token|api[_-]?key|secret|access[_-]?key)[\s:=]+['"]?))([a-zA-Z0-9_-]{20,})['"]?`)
+	// 匹配 AccessKey ID (如阿里云 LTAI 开头，12 位以上)
+	accessKeyRegex = regexp.MustCompile(`(?i)(?:"access[_-]?key[_-]?id"\s*:\s*"|(?:access[_-]?key[_-]?id[\s:=]+['"]?))([a-zA-Z0-9]{12,})['"]?`)
+	// 匹配 Bearer Token
+	bearerTokenRegex = regexp.MustCompile(`(?i)(?:Authorization:\s*Bearer\s+)([a-zA-Z0-9_-]{20,})`)
 )
 
 // Init initializes the logger with the given output path
@@ -149,6 +152,9 @@ func sanitizeMessage(msg string) string {
 		}
 		return "***REDACTED***"
 	})
+
+	// 脱敏 Bearer Token
+	msg = bearerTokenRegex.ReplaceAllString(msg, "Authorization: Bearer ***REDACTED***")
 
 	return msg
 }

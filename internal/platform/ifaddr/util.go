@@ -22,12 +22,14 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 
 	const retries = 2
 
-	// create result channel for concurrent requests
+	// 使用 buffered channel 防止 goroutine 泄漏
+	// 当 ctx 取消时，发送操作不会阻塞
 	resultChan := make(chan struct {
 		info []IPv6Info
 		err  error
 		url  string
-	})
+	}, len(urls))
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -35,15 +37,11 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 		go func(u string) {
 			defer func() {
 				if r := recover(); r != nil {
-					select {
-					case resultChan <- struct {
+					resultChan <- struct {
 						info []IPv6Info
 						err  error
 						url  string
-					}{nil, fmt.Errorf("panic in fallback goroutine: %v", r), u}:
-					case <-ctx.Done():
-						return
-					}
+					}{nil, fmt.Errorf("panic in fallback goroutine: %v", r), u}
 				}
 			}()
 
@@ -66,15 +64,11 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 				resp, err := client.Get(u)
 				if err != nil {
 					if attempt == retries {
-						select {
-						case resultChan <- struct {
+						resultChan <- struct {
 							info []IPv6Info
 							err  error
 							url  string
-						}{nil, fmt.Errorf("API request failed: %v", err), u}:
-						case <-ctx.Done():
-							return
-						}
+						}{nil, fmt.Errorf("API request failed: %v", err), u}
 					}
 					if attempt < retries {
 						time.Sleep(time.Second * 2)
@@ -86,30 +80,22 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 				resp.Body.Close()
 				if err != nil {
 					if attempt == retries {
-						select {
-						case resultChan <- struct {
+						resultChan <- struct {
 							info []IPv6Info
 							err  error
 							url  string
-						}{nil, fmt.Errorf("failed to read response body: %v", err), u}:
-						case <-ctx.Done():
-							return
-						}
+						}{nil, fmt.Errorf("failed to read response body: %v", err), u}
 					}
 					continue
 				}
 
 				if resp.StatusCode != http.StatusOK {
 					if attempt == retries {
-						select {
-						case resultChan <- struct {
+						resultChan <- struct {
 							info []IPv6Info
 							err  error
 							url  string
-						}{nil, fmt.Errorf("API returned HTTP %d", resp.StatusCode), u}:
-						case <-ctx.Done():
-							return
-						}
+						}{nil, fmt.Errorf("API returned HTTP %d", resp.StatusCode), u}
 					}
 					continue
 				}
@@ -118,15 +104,11 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 				responseBody := strings.TrimSpace(string(body))
 				if responseBody == "" {
 					if attempt == retries {
-						select {
-						case resultChan <- struct {
+						resultChan <- struct {
 							info []IPv6Info
 							err  error
 							url  string
-						}{nil, fmt.Errorf("empty response from API"), u}:
-						case <-ctx.Done():
-							return
-						}
+						}{nil, fmt.Errorf("empty response from API"), u}
 					}
 					continue
 				}
@@ -136,15 +118,11 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 
 				if ipStr == "" {
 					if attempt == retries {
-						select {
-						case resultChan <- struct {
+						resultChan <- struct {
 							info []IPv6Info
 							err  error
 							url  string
-						}{nil, fmt.Errorf("no valid IP found in response: %s", responseBody), u}:
-						case <-ctx.Done():
-							return
-						}
+						}{nil, fmt.Errorf("no valid IP found in response: %s", responseBody), u}
 					}
 					continue
 				}
@@ -152,15 +130,11 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 				ip := net.ParseIP(ipStr)
 				if ip == nil {
 					if attempt == retries {
-						select {
-						case resultChan <- struct {
+						resultChan <- struct {
 							info []IPv6Info
 							err  error
 							url  string
-						}{nil, fmt.Errorf("invalid IP format: %s", ipStr), u}:
-						case <-ctx.Done():
-							return
-						}
+						}{nil, fmt.Errorf("invalid IP format: %s", ipStr), u}
 					}
 					continue
 				}
@@ -168,15 +142,11 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 				// Verify it's an IPv6 address
 				if ip.To4() != nil {
 					if attempt == retries {
-						select {
-						case resultChan <- struct {
+						resultChan <- struct {
 							info []IPv6Info
 							err  error
 							url  string
-						}{nil, fmt.Errorf("returned IPv4 instead of IPv6: %s", ipStr), u}:
-						case <-ctx.Done():
-							return
-						}
+						}{nil, fmt.Errorf("returned IPv4 instead of IPv6: %s", ipStr), u}
 					}
 					continue
 				}
@@ -184,15 +154,11 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 				// Check address type
 				if ip.IsLinkLocalUnicast() || ip.IsLoopback() || IsPrivateOrLocalIP(ip) {
 					if attempt == retries {
-						select {
-						case resultChan <- struct {
+						resultChan <- struct {
 							info []IPv6Info
 							err  error
 							url  string
-						}{nil, fmt.Errorf("invalid address type: %s", ipStr), u}:
-						case <-ctx.Done():
-							return
-						}
+						}{nil, fmt.Errorf("invalid address type: %s", ipStr), u}
 					}
 					continue
 				}
@@ -209,15 +175,11 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 				if !quiet {
 					log.Info("API %s succeeded: %s", u, ipStr)
 				}
-				select {
-				case resultChan <- struct {
+				resultChan <- struct {
 					info []IPv6Info
 					err  error
 					url  string
-				}{[]IPv6Info{info}, nil, u}:
-				case <-ctx.Done():
-					return
-				}
+				}{[]IPv6Info{info}, nil, u}
 				return
 			}
 		}(u)

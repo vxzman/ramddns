@@ -128,12 +128,16 @@ var runCmd = &cobra.Command{
 func updateRecords(ctx context.Context, cfg *config.Config, currentIP string, cacheFilePath string, ignoreCache bool, lastIP string) {
 	var wg sync.WaitGroup
 	results := make([]updateResult, len(cfg.Records))
+	var mu sync.Mutex // 保护 results 的并发写入
 
 	for i, record := range cfg.Records {
 		wg.Add(1)
 		go func(idx int, rec config.RecordConfig) {
 			defer wg.Done()
-			results[idx] = updateSingleRecord(ctx, cfg, &rec, currentIP, cacheFilePath, ignoreCache)
+			result := updateSingleRecord(ctx, cfg, &rec, currentIP, cacheFilePath, ignoreCache)
+			mu.Lock()
+			results[idx] = result
+			mu.Unlock()
 		}(i, record)
 	}
 
@@ -257,51 +261,24 @@ func updateSingleRecord(ctx context.Context, cfg *config.Config, record *config.
 			extra["proxied"] = true
 		}
 		extra["zoneID"] = zoneID
+	}
 
-		// 更新 DNS 记录
-		success, err := provider.UpsertRecord(ctx, record.Zone, record.Record, currentIP, ttl, extra)
-		if err != nil {
-			log.Error("Failed to update %s: %v", result.record, err)
-			result.err = err
-			result.success = false
-			return result
-		}
-
-		if success {
-			log.Success("Record %s updated successfully", result.record)
-			result.success = true
-		} else {
-			log.Error("Record %s update returned false", result.record)
-			result.success = false
-		}
+	// 更新 DNS 记录（通用逻辑）
+	success, err := provider.UpsertRecord(ctx, record.Zone, record.Record, currentIP, ttl, extra)
+	if err != nil {
+		log.Error("Failed to update %s: %v", result.record, err)
+		result.err = err
+		result.success = false
 		return result
 	}
 
-	// 处理阿里云配置
-	if record.Provider == "aliyun" {
-		// 更新 DNS 记录
-		success, err := provider.UpsertRecord(ctx, record.Zone, record.Record, currentIP, ttl, extra)
-		if err != nil {
-			log.Error("Failed to update %s: %v", result.record, err)
-			result.err = err
-			result.success = false
-			return result
-		}
-
-		if success {
-			log.Success("Record %s updated successfully", result.record)
-			result.success = true
-		} else {
-			log.Error("Record %s update returned false", result.record)
-			result.success = false
-		}
-		return result
+	if success {
+		log.Success("Record %s updated successfully", result.record)
+		result.success = true
+	} else {
+		log.Error("Record %s update returned false", result.record)
+		result.success = false
 	}
-
-	// 不支持的 provider（理论上不会到这里，因为工厂已经验证过）
-	log.Error("Unsupported provider: %s", record.Provider)
-	result.err = fmt.Errorf("unsupported provider: %s", record.Provider)
-	result.success = false
 	return result
 }
 

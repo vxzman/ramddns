@@ -20,7 +20,6 @@ import (
 type AliyunProvider struct {
 	accessKeyID     string
 	accessKeySecret string
-	proxyURL        string // 阿里云不支持代理，但保留字段以满足接口
 }
 
 const (
@@ -43,17 +42,12 @@ func (p *AliyunProvider) Name() string {
 	return "aliyun"
 }
 
-// SetProxy sets the proxy URL for the provider
-// Note: Aliyun provider does not support proxy, this is a no-op
+// SetProxy is a no-op for Aliyun provider (does not support proxy)
 func (p *AliyunProvider) SetProxy(proxyURL string) error {
-	if proxyURL != "" {
-		// 记录警告，但不返回错误
-		p.proxyURL = proxyURL
-	}
 	return nil
 }
 
-// GetProxy returns the current proxy URL (always empty for Aliyun)
+// GetProxy returns empty string (Aliyun does not support proxy)
 func (p *AliyunProvider) GetProxy() string {
 	return ""
 }
@@ -104,7 +98,7 @@ func (p *AliyunProvider) signRequest(ctx context.Context, params map[string]stri
 		}
 
 		if resp.StatusCode >= 500 && attempt < defaultRetries {
-			resp.Body.Close()
+			resp.Body.Close() // 关闭响应体后再重试
 			time.Sleep(baseDelay * time.Duration(1<<attempt))
 			continue
 		}

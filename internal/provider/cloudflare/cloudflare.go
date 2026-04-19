@@ -157,6 +157,7 @@ func (p *CloudflareProvider) cfRequest(ctx context.Context, method string, endpo
 		}
 
 		if resp.StatusCode >= 500 && attempt < defaultRetries {
+			resp.Body.Close() // 关闭响应体后再重试
 			time.Sleep(baseDelay * time.Duration(1<<attempt))
 			continue
 		}

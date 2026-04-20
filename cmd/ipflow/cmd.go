@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -22,7 +23,7 @@ var commit = ""
 var buildDate = ""
 
 func printVersion() {
-	fmt.Printf("ipflow %s\n", version)
+	fmt.Printf("aiolos %s\n", version)
 	if commit != "" {
 		fmt.Printf("commit: %s\n", commit)
 	}
@@ -32,7 +33,7 @@ func printVersion() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "ipflow",
+	Use:   "aiolos",
 	Short: "强大的动态 DNS 客户端 - 支持多域名多服务商",
 }
 
@@ -42,11 +43,20 @@ var runCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// 解析参数
 		configPath, _ := cmd.Flags().GetString("config")
+		dirPath, _ := cmd.Flags().GetString("dir")
 		ignoreCache, _ := cmd.Flags().GetBool("ignore-cache")
 		timeout, _ := cmd.Flags().GetInt("timeout")
 		if configPath == "" {
-			fmt.Fprintln(os.Stderr, "缺少配置文件参数：--config")
-			os.Exit(1)
+			if dirPath == "" {
+				fmt.Fprintln(os.Stderr, "缺少配置文件参数：--config，或请通过--dir 指定工作目录以在其中查找 config.json")
+				os.Exit(1)
+			}
+			// 在指定的目录下查找 config.json
+			configPath = filepath.Join(dirPath, "config.json")
+			if _, err := os.Stat(configPath); os.IsNotExist(err) {
+				fmt.Fprintf(os.Stderr, "配置文件未找到: %s\n", configPath)
+				os.Exit(1)
+			}
 		}
 
 		// 创建带超时的 context
@@ -69,13 +79,28 @@ var runCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		// 初始化日志系统
-		if err := log.Init(cfg.General.LogOutput); err != nil {
+		// 初始化日志系统：如果 log 输出路径不是绝对路径，则相对于 --dir（若提供）或配置文件所在目录创建
+		logOutput := cfg.General.LogOutput
+		if logOutput != "" && !filepath.IsAbs(logOutput) {
+			baseDir := dirPath
+			if baseDir == "" {
+				baseDir = filepath.Dir(absConfigFile)
+			}
+			logOutput = filepath.Join(baseDir, logOutput)
+			// 确保日志文件所在目录存在
+			if dir := filepath.Dir(logOutput); dir != "" {
+				if err := os.MkdirAll(dir, 0755); err != nil {
+					fmt.Fprintf(os.Stderr, "Failed to create log directory: %v\n", err)
+					os.Exit(1)
+				}
+			}
+		}
+		if err := log.Init(logOutput); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to initialize logging: %v\n", err)
 			os.Exit(1)
 		}
 
-		log.Info("ipflow starting with %d record(s)", len(cfg.Records))
+		log.Info("aiolos starting with %d record(s)", len(cfg.Records))
 
 		// 获取当前 IP 地址（get_ip 始终直连，不使用代理）
 		var infos []ifaddr.IPv6Info
@@ -107,8 +132,8 @@ var runCmd = &cobra.Command{
 
 		log.Info("Current IPv6 address: %s", currentIP)
 
-		// 检查缓存
-		cacheFilePath := config.GetCacheFilePath(absConfigFile, cfg.General.WorkDir)
+		// 检查缓存（缓存路径由 --dir/-d 指定；若未提供，则使用配置文件所在目录）
+		cacheFilePath := config.GetCacheFilePath(absConfigFile, dirPath)
 		lastIP := config.ReadLastIP(cacheFilePath)
 
 		if !ignoreCache {
@@ -298,7 +323,8 @@ var versionCmd = &cobra.Command{
 }
 
 func Execute() {
-	runCmd.Flags().StringP("config", "f", "", "配置文件路径 (JSON 格式)")
+	runCmd.Flags().StringP("config", "c", "", "配置文件路径 (JSON 格式)")
+	runCmd.Flags().StringP("dir", "d", "", "工作目录（用于存放缓存和相对日志路径）")
 	runCmd.Flags().BoolP("ignore-cache", "i", false, "忽略缓存 IP，强制更新")
 	runCmd.Flags().IntP("timeout", "t", 300, "超时时间（秒），默认 300 秒")
 	rootCmd.AddCommand(runCmd)

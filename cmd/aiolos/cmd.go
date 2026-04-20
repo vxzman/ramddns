@@ -18,9 +18,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var version = "dev"
-var commit = ""
-var buildDate = ""
+var (
+	version   = "dev"
+	commit    = ""
+	buildDate = ""
+)
 
 func printVersion() {
 	fmt.Printf("aiolos %s\n", version)
@@ -41,29 +43,26 @@ var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "运行 DDNS 更新",
 	Run: func(cmd *cobra.Command, args []string) {
-		// 解析参数
 		configPath, _ := cmd.Flags().GetString("config")
 		dirPath, _ := cmd.Flags().GetString("dir")
 		ignoreCache, _ := cmd.Flags().GetBool("ignore-cache")
 		timeout, _ := cmd.Flags().GetInt("timeout")
+
 		if configPath == "" {
 			if dirPath == "" {
 				fmt.Fprintln(os.Stderr, "缺少配置文件参数：--config，或请通过--dir 指定工作目录以在其中查找 config.json")
 				os.Exit(1)
 			}
-			// 在指定的目录下查找 config.json
 			configPath = filepath.Join(dirPath, "config.json")
 			if _, err := os.Stat(configPath); os.IsNotExist(err) {
-				fmt.Fprintf(os.Stderr, "配置文件未找到: %s\n", configPath)
+				fmt.Fprintf(os.Stderr, "配置文件未找到：%s\n", configPath)
 				os.Exit(1)
 			}
 		}
 
-		// 创建带超时的 context
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 		defer cancel()
 
-		// 监听信号，支持优雅退出
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		go func() {
@@ -72,20 +71,17 @@ var runCmd = &cobra.Command{
 			cancel()
 		}()
 
-		// 读取配置
 		cfg, absConfigFile := config.ReadConfig(configPath, false)
 		if cfg == nil {
 			fmt.Fprintln(os.Stderr, "Failed to load configuration")
 			os.Exit(1)
 		}
 
-		// base directory for cache/key/log resolution
 		baseDir := dirPath
 		if baseDir == "" {
 			baseDir = filepath.Dir(absConfigFile)
 		}
 
-		// 对初始明文密钥进行加密并写回配置（如果需要）
 		if changed, err := config.EncryptConfigSecrets(cfg, absConfigFile, dirPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to encrypt config secrets: %v\n", err)
 			os.Exit(1)
@@ -93,17 +89,14 @@ var runCmd = &cobra.Command{
 			fmt.Fprintf(os.Stderr, "Encrypted plaintext secrets in config and updated %s\n", absConfigFile)
 		}
 
-		// 解析 env/${var.*} 和解密 enc:...
 		if err := config.ResolveSecrets(cfg, baseDir); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to resolve secrets: %v\n", err)
 			os.Exit(1)
 		}
 
-		// 初始化日志系统：如果 log 输出路径不是绝对路径，则相对于 --dir（若提供）或配置文件所在目录创建
 		logOutput := cfg.General.LogOutput
 		if logOutput != "" && !filepath.IsAbs(logOutput) {
 			logOutput = filepath.Join(baseDir, logOutput)
-			// 确保日志文件所在目录存在
 			if dir := filepath.Dir(logOutput); dir != "" {
 				if err := os.MkdirAll(dir, 0755); err != nil {
 					fmt.Fprintf(os.Stderr, "Failed to create log directory: %v\n", err)
@@ -118,37 +111,14 @@ var runCmd = &cobra.Command{
 
 		log.Info("aiolos starting with %d record(s)", len(cfg.Records))
 
-		// 获取当前 IP 地址（get_ip 始终直连，不使用代理）
-		var infos []ifaddr.IPv6Info
-		var err error
-		if cfg.General.GetIP.Interface != "" {
-			infos, err = ifaddr.GetAvailableIPv6(cfg.General.GetIP.Interface)
-			if err != nil {
-				log.Info("Interface %s failed: %v", cfg.General.GetIP.Interface, err)
-				log.Info("Trying fallback API...")
-				infos, err = ifaddr.GetIPv6FromAPIs(cfg.General.GetIP.URLs, false)
-				if err != nil {
-					log.Error("Fallback also failed: %v", err)
-					os.Exit(1)
-				}
-			}
-		} else {
-			infos, err = ifaddr.GetIPv6FromAPIs(cfg.General.GetIP.URLs, false)
-			if err != nil {
-				log.Error("Failed to get IP from APIs: %v", err)
-				os.Exit(1)
-			}
-		}
-
-		currentIP, err := ifaddr.SelectBestIPv6(infos)
+		currentIP, err := getCurrentIP(cfg)
 		if err != nil {
-			log.Error("Failed to select best IPv6 address: %v", err)
+			log.Error("Failed to get current IP: %v", err)
 			os.Exit(1)
 		}
 
 		log.Info("Current IPv6 address: %s", currentIP)
 
-		// 检查缓存（缓存路径由 --dir/-d 指定；若未提供，则使用配置文件所在目录）
 		cacheFilePath := config.GetCacheFilePath(absConfigFile, dirPath)
 		lastIP := config.ReadLastIP(cacheFilePath)
 
@@ -160,22 +130,46 @@ var runCmd = &cobra.Command{
 			}
 		}
 
-		// 批量更新所有记录
-		updateRecords(ctx, cfg, currentIP, cacheFilePath, ignoreCache, lastIP)
+		updateRecords(ctx, cfg, currentIP, cacheFilePath, lastIP)
 	},
 }
 
+// getCurrentIP gets the current IPv6 address
+func getCurrentIP(cfg *config.Config) (string, error) {
+	var infos []ifaddr.IPv6Info
+	var err error
+
+	if cfg.General.GetIP.Interface != "" {
+		infos, err = ifaddr.GetAvailableIPv6(cfg.General.GetIP.Interface)
+		if err != nil {
+			log.Info("Interface %s failed: %v", cfg.General.GetIP.Interface, err)
+			log.Info("Trying fallback API...")
+			infos, err = ifaddr.GetIPv6FromAPIs(cfg.General.GetIP.URLs, false)
+			if err != nil {
+				return "", err
+			}
+		}
+	} else {
+		infos, err = ifaddr.GetIPv6FromAPIs(cfg.General.GetIP.URLs, false)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	return ifaddr.SelectBestIPv6(infos)
+}
+
 // updateRecords updates all DNS records in parallel
-func updateRecords(ctx context.Context, cfg *config.Config, currentIP string, cacheFilePath string, ignoreCache bool, lastIP string) {
+func updateRecords(ctx context.Context, cfg *config.Config, currentIP string, cacheFilePath string, lastIP string) {
 	var wg sync.WaitGroup
 	results := make([]updateResult, len(cfg.Records))
-	var mu sync.Mutex // 保护 results 的并发写入
+	var mu sync.Mutex
 
 	for i, record := range cfg.Records {
 		wg.Add(1)
 		go func(idx int, rec config.RecordConfig) {
 			defer wg.Done()
-			result := updateSingleRecord(ctx, cfg, &rec, currentIP, cacheFilePath, ignoreCache)
+			result := updateSingleRecord(ctx, cfg, &rec, currentIP, cacheFilePath)
 			mu.Lock()
 			results[idx] = result
 			mu.Unlock()
@@ -184,9 +178,7 @@ func updateRecords(ctx context.Context, cfg *config.Config, currentIP string, ca
 
 	wg.Wait()
 
-	// 汇总结果
-	successCount := 0
-	failCount := 0
+	successCount, failCount := 0, 0
 	anySuccess := false
 	for _, result := range results {
 		if result.success {
@@ -199,7 +191,6 @@ func updateRecords(ctx context.Context, cfg *config.Config, currentIP string, ca
 
 	log.Info("Update completed: %d succeeded, %d failed", successCount, failCount)
 
-	// 仅在 IP 发生变化且至少有一次成功时写入缓存，避免重复写入
 	if anySuccess && lastIP != currentIP {
 		updateCache(cacheFilePath, currentIP)
 	}
@@ -216,100 +207,40 @@ type updateResult struct {
 }
 
 // updateSingleRecord updates a single DNS record
-func updateSingleRecord(ctx context.Context, cfg *config.Config, record *config.RecordConfig, currentIP string, cacheFilePath string, ignoreCache bool) updateResult {
+func updateSingleRecord(ctx context.Context, cfg *config.Config, record *config.RecordConfig, currentIP string, cacheFilePath string) updateResult {
 	result := updateResult{record: fmt.Sprintf("%s.%s", record.Record, record.Zone)}
 
-	// 检查 context 是否已取消
 	select {
 	case <-ctx.Done():
 		result.err = ctx.Err()
-		result.success = false
 		return result
 	default:
 	}
 
 	log.Info("Processing record: %s (%s)", result.record, record.Provider)
 
-	// 使用工厂创建 Provider
 	provider, err := factory.GetProvider(cfg, record)
 	if err != nil {
 		log.Error("Failed to create provider for %s: %v", result.record, err)
 		result.err = err
-		result.success = false
 		return result
 	}
 
-	// 检查代理配置（仅用于日志记录）
-	proxyURL := config.GetRecordProxy(cfg, record)
-	if proxyURL != "" {
-		// 检查 provider 是否支持代理
-		if _, ok := provider.(interface{ GetProxy() string }); !ok {
-			log.Warning("Provider %s does not support proxy, ignoring use_proxy setting for %s", record.Provider, result.record)
-		}
-	}
-
-	// 获取记录特定配置
-	ttl := config.GetRecordTTL(record)
-	extra := make(map[string]interface{})
-
-	// 处理 Cloudflare 特定配置
+	// Setup Cloudflare specific configuration
 	if record.Provider == "cloudflare" {
-		zoneID := record.Cloudflare.ZoneID
-		cacheZoneIDPath := cacheFilePath + ".zoneid.json"
-
-		// 如果没有配置 ZoneID，尝试从本地缓存读取
-		if zoneID == "" {
-			if cached := config.ReadZoneIDCache(cacheZoneIDPath); cached != nil {
-				if v, ok := cached[record.Zone]; ok && v != "" {
-					zoneID = v
-					record.Cloudflare.ZoneID = v
-				}
-			}
+		if err := setupCloudflareRecord(ctx, provider, record, cacheFilePath); err != nil {
+			result.err = err
+			return result
 		}
-
-		// 如果仍然没有 ZoneID，则通过 API 获取
-		if zoneID == "" {
-			log.Info("Zone ID not configured, fetching for zone: %s", record.Zone)
-			cfProvider, ok := provider.(*cloudflare.CloudflareProvider)
-			if !ok {
-				result.err = fmt.Errorf("failed to cast provider to CloudflareProvider")
-				result.success = false
-				return result
-			}
-			fetchedZoneID, err := cfProvider.GetZoneID(ctx, record.Zone)
-			if err != nil {
-				log.Error("Failed to fetch Zone ID: %v", err)
-				result.err = fmt.Errorf("failed to get Zone ID: %w", err)
-				result.success = false
-				return result
-			}
-			zoneID = fetchedZoneID
-			log.Info("Zone ID fetched: %s", zoneID)
-
-			// 保存 ZoneID 到本地缓存文件（不写入包含敏感信息的完整配置）
-			record.Cloudflare.ZoneID = zoneID
-			if writeErr := config.UpdateZoneIDCache(cacheZoneIDPath, record.Zone, zoneID); writeErr != nil {
-				log.Warning("Warning: Failed to save Zone ID cache: %v", writeErr)
-			}
-		}
-
-		// 获取 TTL 和 Proxied 设置
-		if record.Cloudflare.TTL > 0 {
-			ttl = record.Cloudflare.TTL
-		}
-		extra["proxied"] = record.Proxied
-		if record.Cloudflare.Proxied {
-			extra["proxied"] = true
-		}
-		extra["zoneID"] = zoneID
 	}
 
-	// 更新 DNS 记录（通用逻辑）
+	ttl := config.GetRecordTTL(record)
+	extra := buildExtraConfig(record)
+
 	success, err := provider.UpsertRecord(ctx, record.Zone, record.Record, currentIP, ttl, extra)
 	if err != nil {
 		log.Error("Failed to update %s: %v", result.record, err)
 		result.err = err
-		result.success = false
 		return result
 	}
 
@@ -323,10 +254,58 @@ func updateSingleRecord(ctx context.Context, cfg *config.Config, record *config.
 	return result
 }
 
+// setupCloudflareRecord sets up Cloudflare specific configuration
+func setupCloudflareRecord(ctx context.Context, provider any, record *config.RecordConfig, cacheFilePath string) error {
+	cfProvider, ok := provider.(*cloudflare.CloudflareProvider)
+	if !ok {
+		return fmt.Errorf("failed to cast provider to CloudflareProvider")
+	}
+
+	cacheZoneIDPath := cacheFilePath + ".zoneid.json"
+	zoneID := record.Cloudflare.ZoneID
+
+	// Try cache first
+	if zoneID == "" {
+		if cached := config.ReadZoneIDCache(cacheZoneIDPath); cached != nil {
+			zoneID = cached[record.Zone]
+			record.Cloudflare.ZoneID = zoneID
+		}
+	}
+
+	// Fetch from API if not in cache
+	if zoneID == "" {
+		log.Info("Zone ID not configured, fetching for zone: %s", record.Zone)
+		var err error
+		zoneID, err = cfProvider.GetZoneID(ctx, record.Zone)
+		if err != nil {
+			log.Error("Failed to fetch Zone ID: %v", err)
+			return fmt.Errorf("failed to get Zone ID: %w", err)
+		}
+		record.Cloudflare.ZoneID = zoneID
+		log.Info("Zone ID fetched: %s", zoneID)
+
+		if err := config.UpdateZoneIDCache(cacheZoneIDPath, record.Zone, zoneID); err != nil {
+			log.Warning("Warning: Failed to save Zone ID cache: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// buildExtraConfig builds extra configuration map for provider
+func buildExtraConfig(record *config.RecordConfig) map[string]interface{} {
+	extra := make(map[string]interface{})
+	if record.Provider == "cloudflare" {
+		extra["proxied"] = record.Cloudflare.Proxied
+		extra["zoneID"] = record.Cloudflare.ZoneID
+	}
+	return extra
+}
+
 // updateCache updates the cache file once per run
 func updateCache(cacheFilePath string, currentIP string) {
-	if writeErr := config.WriteLastIP(cacheFilePath, currentIP); writeErr != nil {
-		log.Warning("Warning: Failed to write IP to cache: %v", writeErr)
+	if err := config.WriteLastIP(cacheFilePath, currentIP); err != nil {
+		log.Warning("Warning: Failed to write IP to cache: %v", err)
 	}
 }
 

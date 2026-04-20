@@ -1,40 +1,45 @@
 {
-    "general": {
-        "get_ip": {
-            "interface": "enp6s18",
-            "urls": [
-                "https://ipv6.icanhazip.com",
-                "https://6.ipw.cn",
-                "https://v6.ipv6-test.com/api/myip.php"
-            ]
-        },
-        "work_dir": "",
-        "log_output": "shell",
-        "proxy": ""
+  "vars": {
+    "cloudflare_var1": "your_cloudflare_api_token",
+    "cloudflare_zone_id": "your_cloudflare_zone_id",
+    "aliyun_access_key_id": "your_aliyun_access_key_id",
+    "aliyun_access_key_secret": "your_aliyun_access_key_secret"
+  },
+  "general": {
+    "get_ip": {
+      "interface": "enp6s18",
+      "urls": [
+        "https://ipv6.icanhazip.com",
+        "https://6.ipw.cn",
+        "https://v6.ipv6-test.com/api/myip.php"
+      ]
     },
-    "records": [
-        {
-            "provider": "cloudflare",
-            "zone": "example.com",
-            "record": "dev",
-            "ttl": 180,
-            "proxied": false,
-            "use_proxy": false,
-            "cloudflare": {
-                "api_token": "${CLOUDFLARE_API_TOKEN}",
-                "zone_id": "${CLOUDFLARE_ZONE_ID:-}"
-            }
-        },
-        {
-            "provider": "aliyun",
-            "zone": "example.cn",
-            "record": "www",
-            "ttl": 600,
-            "use_proxy": false,
-            "aliyun": {
-                "access_key_id": "${ALIYUN_ACCESS_KEY_ID}",
-                "access_key_secret": "${ALIYUN_ACCESS_KEY_SECRET}"
-            }
-        }
-    ]
+    "log_output": "shell",
+    "proxy": ""
+  },
+  "records": [
+    {
+      "provider": "cloudflare",
+      "zone": "example.com",
+      "record": "dev",
+      "ttl": 180,
+      "proxied": false,
+      "use_proxy": false,
+      "cloudflare": {
+        "api_token": "${var.cloudflare_var1}",
+        "zone_id": "${var.cloudflare_zone_id}"
+      }
+    },
+    {
+      "provider": "aliyun",
+      "zone": "example.cn",
+      "record": "www",
+      "ttl": 600,
+      "use_proxy": false,
+      "aliyun": {
+        "access_key_id": "${var.aliyun_access_key_id}",
+        "access_key_secret": "${var.aliyun_access_key_secret}"
+      }
+    }
+  ]
 }

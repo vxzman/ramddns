@@ -1,6 +1,10 @@
 package config
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -24,6 +28,10 @@ type GeneralConfig struct {
 	LogOutput string   `json:"log_output,omitempty"`
 	Proxy     string   `json:"proxy,omitempty"` // 全局代理配置
 }
+
+// Vars is a map of user-defined variables that can be referenced in the config
+// Usage in config values: ${var.NAME}
+type Vars map[string]string
 
 // CloudflareRecord Cloudflare provider specific settings
 type CloudflareRecord struct {
@@ -54,11 +62,13 @@ type RecordConfig struct {
 
 // Config main configuration structure
 type Config struct {
-	General GeneralConfig  `json:"general"`
-	Records []RecordConfig `json:"records"`
+	General GeneralConfig     `json:"general"`
+	Vars    map[string]string `json:"vars,omitempty"`
+	Records []RecordConfig    `json:"records"`
 }
 
-// ReadConfig reads and validates config
+// ReadConfig reads and validates config (parses JSON and performs structural validation).
+// Secret resolution (env/vars/decryption) is performed separately by ResolveSecrets
 func ReadConfig(path string, quiet bool) (*Config, string) {
 	configFile, err := filepath.Abs(path)
 	if err != nil {
@@ -80,55 +90,142 @@ func ReadConfig(path string, quiet bool) (*Config, string) {
 		return nil, ""
 	}
 
-	// 验证配置（在扩展环境变量之前，检查是否使用明文密钥）
+	// 仅做结构和必需字段校验（不对密钥格式做强制限制）
 	if err := validateConfig(&config); err != nil {
 		log.Error("Invalid config: %v", err)
-		return nil, ""
-	}
-
-	// 扩展环境变量
-	expandConfigEnvVars(&config)
-
-	// 再次验证扩展后的配置（检查环境变量是否为空）
-	if err := validateConfigExpanded(&config); err != nil {
-		log.Error("Invalid config after environment variable expansion: %v", err)
 		return nil, ""
 	}
 
 	return &config, configFile
 }
 
-// expandConfigEnvVars expands environment variables in sensitive config fields
-func expandConfigEnvVars(cfg *Config) {
-	// 扩展全局代理配置
+// resolveValueWithVars expands ${var.NAME} from cfg.Vars and environment variables
+func resolveValueWithVars(s string, cfg *Config) string {
+	// replace ${var.NAME}
+	varRe := func(s string) string {
+		// find all ${var.NAME}
+		res := s
+		for {
+			start := strings.Index(res, "${var.")
+			if start == -1 {
+				break
+			}
+			end := strings.Index(res[start:], "}")
+			if end == -1 {
+				break
+			}
+			end += start
+			name := res[start+6 : end]
+			val := ""
+			if cfg != nil && cfg.Vars != nil {
+				val = cfg.Vars[name]
+			}
+			res = res[:start] + val + res[end+1:]
+		}
+		return res
+	}
+
+	s = varRe(s)
+	// expand environment variables like ${ENV}
+	return expandEnv(s)
+}
+
+// ResolveSecrets resolves env references, ${var.*} references and decrypts enc: values using a key file.
+// key is read from baseDir/.aiolos.key (if exists). If enc: values exist but key missing, an error is returned.
+func ResolveSecrets(cfg *Config, baseDir string) error {
+	keyPath := filepath.Join(baseDir, ".aiolos.key")
+	var key []byte
+	if _, err := os.Stat(keyPath); err == nil {
+		k, err := os.ReadFile(keyPath)
+		if err != nil {
+			return fmt.Errorf("failed to read key file: %w", err)
+		}
+		key = k
+	}
+
+	// Resolve vars first
+	for k, v := range cfg.Vars {
+		if v == "" {
+			continue
+		}
+		if strings.HasPrefix(v, "enc:") {
+			if key == nil {
+				return fmt.Errorf("encrypted var %s found but key file missing: %s", k, keyPath)
+			}
+			dec, err := decryptValue(v, key)
+			if err != nil {
+				return fmt.Errorf("failed to decrypt var %s: %w", k, err)
+			}
+			cfg.Vars[k] = dec
+			continue
+		}
+		// expand env and other var refs inside var value
+		cfg.Vars[k] = expandEnv(v)
+	}
+
+	// Helper to resolve a single value
+	resolve := func(val string) (string, error) {
+		if val == "" {
+			return val, nil
+		}
+		// first replace ${var.NAME} and envs
+		val = resolveValueWithVars(val, cfg)
+		if strings.HasPrefix(val, "enc:") {
+			if key == nil {
+				return "", fmt.Errorf("encrypted value found but key file missing: %s", keyPath)
+			}
+			return decryptValue(val, key)
+		}
+		return val, nil
+	}
+
+	// General proxy
 	if cfg.General.Proxy != "" {
-		cfg.General.Proxy = expandEnv(cfg.General.Proxy)
+		r, err := resolve(cfg.General.Proxy)
+		if err != nil {
+			return err
+		}
+		cfg.General.Proxy = r
 	}
 
-	// 扩展每个记录的敏感信息
+	// Records
 	for i := range cfg.Records {
-		record := &cfg.Records[i]
-
-		// Cloudflare 配置
-		if record.Cloudflare != nil {
-			if record.Cloudflare.APIToken != "" {
-				record.Cloudflare.APIToken = expandEnv(record.Cloudflare.APIToken)
+		rec := &cfg.Records[i]
+		if rec.Cloudflare != nil {
+			if rec.Cloudflare.APIToken != "" {
+				r, err := resolve(rec.Cloudflare.APIToken)
+				if err != nil {
+					return err
+				}
+				rec.Cloudflare.APIToken = r
 			}
-			if record.Cloudflare.ZoneID != "" {
-				record.Cloudflare.ZoneID = expandEnv(record.Cloudflare.ZoneID)
+			if rec.Cloudflare.ZoneID != "" {
+				r, err := resolve(rec.Cloudflare.ZoneID)
+				if err != nil {
+					return err
+				}
+				rec.Cloudflare.ZoneID = r
 			}
 		}
-
-		// 阿里云配置
-		if record.Aliyun != nil {
-			if record.Aliyun.AccessKeyID != "" {
-				record.Aliyun.AccessKeyID = expandEnv(record.Aliyun.AccessKeyID)
+		if rec.Aliyun != nil {
+			if rec.Aliyun.AccessKeyID != "" {
+				r, err := resolve(rec.Aliyun.AccessKeyID)
+				if err != nil {
+					return err
+				}
+				rec.Aliyun.AccessKeyID = r
 			}
-			if record.Aliyun.AccessKeySecret != "" {
-				record.Aliyun.AccessKeySecret = expandEnv(record.Aliyun.AccessKeySecret)
+			if rec.Aliyun.AccessKeySecret != "" {
+				r, err := resolve(rec.Aliyun.AccessKeySecret)
+				if err != nil {
+					return err
+				}
+				rec.Aliyun.AccessKeySecret = r
 			}
 		}
 	}
+
+	return nil
 }
 
 // expandEnv expands environment variables with support for default values
@@ -170,19 +267,8 @@ func isEnvVarReference(s string) bool {
 	return true
 }
 
-// validateNoPlaintextSecret validates that sensitive values are not stored in plaintext
-func validateNoPlaintextSecret(value, fieldName string) error {
-	if value == "" {
-		return fmt.Errorf("%s is empty", fieldName)
-	}
-	if !isEnvVarReference(value) {
-		return fmt.Errorf("%s must use environment variable reference (e.g., ${VAR_NAME}), plaintext secrets are not allowed for security reasons", fieldName)
-	}
-	return nil
-}
-
 // validateConfig validates the configuration (before env expansion)
-// This checks for plaintext secrets and basic configuration validity
+// This checks basic configuration validity but does NOT enforce secrets to be env references.
 func validateConfig(cfg *Config) error {
 	if len(cfg.Records) == 0 {
 		return fmt.Errorf("at least one record must be configured")
@@ -219,27 +305,21 @@ func validateConfig(cfg *Config) error {
 			return fmt.Errorf("record[%d]: use_proxy is true but no global proxy configured", i)
 		}
 
-		// 验证凭证（检查明文密钥）
+		// 验证提供商结构是否存在
 		switch record.Provider {
 		case "cloudflare":
 			if record.Cloudflare == nil {
 				return fmt.Errorf("record[%d]: cloudflare configuration is missing", i)
 			}
-			// Security check: api_token must use environment variable reference
-			if err := validateNoPlaintextSecret(record.Cloudflare.APIToken, fmt.Sprintf("record[%d].cloudflare.api_token", i)); err != nil {
-				return err
+			if record.Cloudflare.APIToken == "" {
+				return fmt.Errorf("record[%d].cloudflare.api_token cannot be empty", i)
 			}
 		case "aliyun":
 			if record.Aliyun == nil {
 				return fmt.Errorf("record[%d]: aliyun configuration is missing", i)
 			}
-			// Security check: access_key_id must use environment variable reference
-			if err := validateNoPlaintextSecret(record.Aliyun.AccessKeyID, fmt.Sprintf("record[%d].aliyun.access_key_id", i)); err != nil {
-				return err
-			}
-			// Security check: access_key_secret must use environment variable reference
-			if err := validateNoPlaintextSecret(record.Aliyun.AccessKeySecret, fmt.Sprintf("record[%d].aliyun.access_key_secret", i)); err != nil {
-				return err
+			if record.Aliyun.AccessKeyID == "" || record.Aliyun.AccessKeySecret == "" {
+				return fmt.Errorf("record[%d].aliyun credentials cannot be empty", i)
 			}
 		default:
 			return fmt.Errorf("record[%d]: unsupported provider '%s'", i, record.Provider)
@@ -372,4 +452,158 @@ func GetRecordTTL(record *RecordConfig) int {
 		return 180
 	}
 	return 600
+}
+
+// --- Encryption helpers for secrets ---
+func ensureKeyFile(keyPath string) ([]byte, error) {
+	if keyPath == "" {
+		return nil, nil
+	}
+	if _, err := os.Stat(keyPath); err == nil {
+		k, err := os.ReadFile(keyPath)
+		if err != nil {
+			return nil, err
+		}
+		return k, nil
+	}
+	// create key
+	k := make([]byte, 32)
+	if _, err := rand.Read(k); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(keyPath, k, 0600); err != nil {
+		return nil, err
+	}
+	return k, nil
+}
+
+func encryptValue(plaintext string, key []byte) (string, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	ct := gcm.Seal(nil, nonce, []byte(plaintext), nil)
+	out := append(nonce, ct...)
+	return "enc:" + base64.StdEncoding.EncodeToString(out), nil
+}
+
+func decryptValue(enc string, key []byte) (string, error) {
+	if !strings.HasPrefix(enc, "enc:") {
+		return enc, nil
+	}
+	data, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(enc, "enc:"))
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+	nonce := data[:nonceSize]
+	ct := data[nonceSize:]
+	pt, err := gcm.Open(nil, nonce, ct, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(pt), nil
+}
+
+// EncryptConfigSecrets encrypts plaintext secrets in vars and provider fields and writes the config back
+// baseDir is used to store/read the key file (.aiolos.key). If baseDir is empty, configDir (dir of configPath) is used.
+func EncryptConfigSecrets(cfg *Config, configPath string, baseDir string) (bool, error) {
+	if baseDir == "" {
+		baseDir = filepath.Dir(configPath)
+	}
+	keyPath := filepath.Join(baseDir, ".aiolos.key")
+	key, err := ensureKeyFile(keyPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to ensure key file: %w", err)
+	}
+
+	changed := false
+
+	// encrypt vars
+	if cfg.Vars == nil {
+		cfg.Vars = make(map[string]string)
+	}
+	for k, v := range cfg.Vars {
+		if v == "" {
+			continue
+		}
+		// skip already encrypted or env refs or var refs
+		if strings.HasPrefix(v, "enc:") || isEnvVarReference(v) || strings.Contains(v, "${var.") {
+			continue
+		}
+		enc, err := encryptValue(v, key)
+		if err != nil {
+			return false, err
+		}
+		cfg.Vars[k] = enc
+		changed = true
+	}
+
+	// encrypt provider secrets
+	for i := range cfg.Records {
+		r := &cfg.Records[i]
+		if r.Cloudflare != nil {
+			if r.Cloudflare.APIToken != "" && !strings.HasPrefix(r.Cloudflare.APIToken, "enc:") && !isEnvVarReference(r.Cloudflare.APIToken) && !strings.Contains(r.Cloudflare.APIToken, "${var.") {
+				enc, err := encryptValue(r.Cloudflare.APIToken, key)
+				if err != nil {
+					return false, err
+				}
+				r.Cloudflare.APIToken = enc
+				changed = true
+			}
+			if r.Cloudflare.ZoneID != "" && !strings.HasPrefix(r.Cloudflare.ZoneID, "enc:") && !isEnvVarReference(r.Cloudflare.ZoneID) && !strings.Contains(r.Cloudflare.ZoneID, "${var.") {
+				enc, err := encryptValue(r.Cloudflare.ZoneID, key)
+				if err != nil {
+					return false, err
+				}
+				r.Cloudflare.ZoneID = enc
+				changed = true
+			}
+		}
+		if r.Aliyun != nil {
+			if r.Aliyun.AccessKeyID != "" && !strings.HasPrefix(r.Aliyun.AccessKeyID, "enc:") && !isEnvVarReference(r.Aliyun.AccessKeyID) && !strings.Contains(r.Aliyun.AccessKeyID, "${var.") {
+				enc, err := encryptValue(r.Aliyun.AccessKeyID, key)
+				if err != nil {
+					return false, err
+				}
+				r.Aliyun.AccessKeyID = enc
+				changed = true
+			}
+			if r.Aliyun.AccessKeySecret != "" && !strings.HasPrefix(r.Aliyun.AccessKeySecret, "enc:") && !isEnvVarReference(r.Aliyun.AccessKeySecret) && !strings.Contains(r.Aliyun.AccessKeySecret, "${var.") {
+				enc, err := encryptValue(r.Aliyun.AccessKeySecret, key)
+				if err != nil {
+					return false, err
+				}
+				r.Aliyun.AccessKeySecret = enc
+				changed = true
+			}
+		}
+	}
+
+	if changed {
+		// write back
+		if err := WriteConfig(configPath, cfg); err != nil {
+			return false, fmt.Errorf("failed to write config after encrypting secrets: %w", err)
+		}
+	}
+	return changed, nil
 }

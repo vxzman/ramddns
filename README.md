@@ -87,15 +87,55 @@ export CLOUDFLARE_API_TOKEN="your_api_token_here"
 ### 4. 运行
 
 ```bash
-# 运行
-./ipflow run -f config.json
+# 运行（CLI 名称：aiolos，容器化友好）
+./aiolos run -c /path/to/config.json -d /path/to/dir
+
+# 如果缺少 -c，会在 -d 指定路径下查找 config.json：
+./aiolos run -d /path/to/dir
 
 # 忽略缓存强制更新
-./ipflow run -f config.json -i
+./aiolos run -c config.json -i
 
 # 查看版本
-./ipflow version
+./aiolos version
 ```
+
+---
+
+## 容器化部署与密钥/变量管理
+
+为了容器/自动化场景更方便使用：
+
+- 新的 CLI 名称为 `aiolos`，配置参数：`--config/-c`（配置文件路径），`--dir/-d`（工作目录，用于缓存、日志相对路径和密钥存放）。
+- 配置文件中新增 `vars` 顶层字段，用于定义可在配置中复用的变量：
+
+```json
+"vars": {
+    "cloudflare_var1": "xxxxxxxx"
+}
+```
+
+- 在配置中引用 `vars`：
+
+```json
+"cloudflare": {
+    "api_token": "${var.cloudflare_var1}"
+}
+```
+
+- 密钥处理与加密：
+  - 支持在配置中直接写明文（为了简化测试与容器化部署）。首次运行时，程序会将明文敏感值（`vars`、Cloudflare `api_token`、阿里云 `access_key`）自动加密，并将配置文件写回（写入形式为 `enc:...`）。
+  - 加密密钥保存在 `<dir>/.aiolos.key`（若未指定 `-d`，则放在配置文件目录），权限为 0600。
+  - 启动时，程序会自动解密 `enc:` 值并在运行时使用明文；如果配置中使用了 `enc:`，但缺少密钥文件，会报错并退出。
+
+- 相对日志路径处理：如果配置中的 `log_output` 不是绝对路径，则相对于 `--dir/-d`（或配置文件所在目录）展开并创建父目录。
+- 缓存文件：`cache.lastip` 将放在 `--dir/-d`（若提供）或配置文件所在目录下；`work_dir` 配置项不再必需，程序会忽略或可保留兼容性。
+
+- 推荐流程（容器内）：
+  1. 将 `config.json` 挂载到容器内，如 `/etc/aiolos/config.json`。
+  2. 指定工作目录为可写目录，例如 `/data/aiolos`，并运行：
+     `aiolos run -c /etc/aiolos/config.json -d /data/aiolos`
+  3. 首次运行会生成 `/data/aiolos/.aiolos.key` 并将明文敏感值替换为 `enc:` 格式写回配置（覆盖原文件）。
 
 ---
 

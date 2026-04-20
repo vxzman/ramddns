@@ -29,10 +29,6 @@ type GeneralConfig struct {
 	Proxy     string   `json:"proxy,omitempty"` // 全局代理配置
 }
 
-// Vars is a map of user-defined variables that can be referenced in the config
-// Usage in config values: ${var.NAME}
-type Vars map[string]string
-
 // CloudflareRecord Cloudflare provider specific settings
 type CloudflareRecord struct {
 	APIToken string `json:"api_token"`
@@ -132,6 +128,39 @@ func resolveValueWithVars(s string, cfg *Config) string {
 
 // ResolveSecrets resolves env references, ${var.*} references and decrypts enc: values using a key file.
 // key is read from baseDir/.aiolos.key (if exists). If enc: values exist but key missing, an error is returned.
+func expandConfigEnvVars(cfg *Config) {
+	// expand vars map values
+	if cfg.Vars != nil {
+		for k, v := range cfg.Vars {
+			cfg.Vars[k] = expandEnv(v)
+		}
+	}
+
+	if cfg.General.Proxy != "" {
+		cfg.General.Proxy = resolveValueWithVars(cfg.General.Proxy, cfg)
+	}
+
+	for i := range cfg.Records {
+		rec := &cfg.Records[i]
+		if rec.Cloudflare != nil {
+			if rec.Cloudflare.APIToken != "" {
+				rec.Cloudflare.APIToken = resolveValueWithVars(rec.Cloudflare.APIToken, cfg)
+			}
+			if rec.Cloudflare.ZoneID != "" {
+				rec.Cloudflare.ZoneID = resolveValueWithVars(rec.Cloudflare.ZoneID, cfg)
+			}
+		}
+		if rec.Aliyun != nil {
+			if rec.Aliyun.AccessKeyID != "" {
+				rec.Aliyun.AccessKeyID = resolveValueWithVars(rec.Aliyun.AccessKeyID, cfg)
+			}
+			if rec.Aliyun.AccessKeySecret != "" {
+				rec.Aliyun.AccessKeySecret = resolveValueWithVars(rec.Aliyun.AccessKeySecret, cfg)
+			}
+		}
+	}
+}
+
 func ResolveSecrets(cfg *Config, baseDir string) error {
 	keyPath := filepath.Join(baseDir, ".aiolos.key")
 	var key []byte
@@ -312,14 +341,17 @@ func validateConfig(cfg *Config) error {
 				return fmt.Errorf("record[%d]: cloudflare configuration is missing", i)
 			}
 			if record.Cloudflare.APIToken == "" {
-				return fmt.Errorf("record[%d].cloudflare.api_token cannot be empty", i)
+				return fmt.Errorf("cloudflare.api_token is empty")
 			}
 		case "aliyun":
 			if record.Aliyun == nil {
 				return fmt.Errorf("record[%d]: aliyun configuration is missing", i)
 			}
-			if record.Aliyun.AccessKeyID == "" || record.Aliyun.AccessKeySecret == "" {
-				return fmt.Errorf("record[%d].aliyun credentials cannot be empty", i)
+			if record.Aliyun.AccessKeyID == "" {
+				return fmt.Errorf("aliyun.access_key_id is empty")
+			}
+			if record.Aliyun.AccessKeySecret == "" {
+				return fmt.Errorf("aliyun.access_key_secret is empty")
 			}
 		default:
 			return fmt.Errorf("record[%d]: unsupported provider '%s'", i, record.Provider)

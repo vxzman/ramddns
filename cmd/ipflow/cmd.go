@@ -79,13 +79,29 @@ var runCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		// base directory for cache/key/log resolution
+		baseDir := dirPath
+		if baseDir == "" {
+			baseDir = filepath.Dir(absConfigFile)
+		}
+
+		// 对初始明文密钥进行加密并写回配置（如果需要）
+		if changed, err := config.EncryptConfigSecrets(cfg, absConfigFile, dirPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to encrypt config secrets: %v\n", err)
+			os.Exit(1)
+		} else if changed {
+			fmt.Fprintf(os.Stderr, "Encrypted plaintext secrets in config and updated %s\n", absConfigFile)
+		}
+
+		// 解析 env/${var.*} 和解密 enc:...
+		if err := config.ResolveSecrets(cfg, baseDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve secrets: %v\n", err)
+			os.Exit(1)
+		}
+
 		// 初始化日志系统：如果 log 输出路径不是绝对路径，则相对于 --dir（若提供）或配置文件所在目录创建
 		logOutput := cfg.General.LogOutput
 		if logOutput != "" && !filepath.IsAbs(logOutput) {
-			baseDir := dirPath
-			if baseDir == "" {
-				baseDir = filepath.Dir(absConfigFile)
-			}
 			logOutput = filepath.Join(baseDir, logOutput)
 			// 确保日志文件所在目录存在
 			if dir := filepath.Dir(logOutput); dir != "" {

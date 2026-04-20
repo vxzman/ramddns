@@ -58,9 +58,9 @@ type RecordConfig struct {
 
 // Config main configuration structure
 type Config struct {
-	General GeneralConfig     `json:"general"`
-	Vars    map[string]string `json:"vars,omitempty"`
-	Records []RecordConfig    `json:"records"`
+	General     GeneralConfig     `json:"general"`
+	Environment map[string]string `json:"environment,omitempty"`
+	Records     []RecordConfig    `json:"records"`
 }
 
 // ReadConfig reads and validates config (parses JSON and performs structural validation).
@@ -95,7 +95,7 @@ func ReadConfig(path string, quiet bool) (*Config, string) {
 	return &config, configFile
 }
 
-// resolveValueWithVars expands ${var.NAME} from cfg.Vars and environment variables
+// resolveValueWithVars expands ${var.NAME} from cfg.Environment and environment variables
 func resolveValueWithVars(s string, cfg *Config) string {
 	// replace ${var.NAME}
 	varRe := func(s string) string {
@@ -113,8 +113,8 @@ func resolveValueWithVars(s string, cfg *Config) string {
 			end += start
 			name := res[start+6 : end]
 			val := ""
-			if cfg != nil && cfg.Vars != nil {
-				val = cfg.Vars[name]
+			if cfg != nil && cfg.Environment != nil {
+				val = cfg.Environment[name]
 			}
 			res = res[:start] + val + res[end+1:]
 		}
@@ -129,10 +129,10 @@ func resolveValueWithVars(s string, cfg *Config) string {
 // ResolveSecrets resolves env references, ${var.*} references and decrypts enc: values using a key file.
 // key is read from baseDir/.aiolos.key (if exists). If enc: values exist but key missing, an error is returned.
 func expandConfigEnvVars(cfg *Config) {
-	// expand vars map values
-	if cfg.Vars != nil {
-		for k, v := range cfg.Vars {
-			cfg.Vars[k] = expandEnv(v)
+	// expand environment map values
+	if cfg.Environment != nil {
+		for k, v := range cfg.Environment {
+			cfg.Environment[k] = expandEnv(v)
 		}
 	}
 
@@ -172,24 +172,24 @@ func ResolveSecrets(cfg *Config, baseDir string) error {
 		key = k
 	}
 
-	// Resolve vars first
-	for k, v := range cfg.Vars {
+	// Resolve environment first
+	for k, v := range cfg.Environment {
 		if v == "" {
 			continue
 		}
 		if strings.HasPrefix(v, "enc:") {
 			if key == nil {
-				return fmt.Errorf("encrypted var %s found but key file missing: %s", k, keyPath)
+				return fmt.Errorf("encrypted environment %s found but key file missing: %s", k, keyPath)
 			}
 			dec, err := decryptValue(v, key)
 			if err != nil {
-				return fmt.Errorf("failed to decrypt var %s: %w", k, err)
+				return fmt.Errorf("failed to decrypt environment %s: %w", k, err)
 			}
-			cfg.Vars[k] = dec
+			cfg.Environment[k] = dec
 			continue
 		}
-		// expand env and other var refs inside var value
-		cfg.Vars[k] = expandEnv(v)
+		// expand env vars inside environment values
+		cfg.Environment[k] = expandEnv(v)
 	}
 
 	// Helper to resolve a single value
@@ -197,6 +197,25 @@ func ResolveSecrets(cfg *Config, baseDir string) error {
 		if val == "" {
 			return val, nil
 		}
+		// If value is of form $name -> lookup in cfg.Environment
+		if strings.HasPrefix(val, "$") && !strings.HasPrefix(val, "${") {
+			name := val[1:]
+			if cfg.Environment == nil {
+				return "", fmt.Errorf("no environment section in config to resolve %s", name)
+			}
+			envVal, ok := cfg.Environment[name]
+			if !ok || envVal == "" {
+				return "", fmt.Errorf("environment variable %s is not set", name)
+			}
+			if strings.HasPrefix(envVal, "enc:") {
+				if key == nil {
+					return "", fmt.Errorf("encrypted value found for %s but key file missing: %s", name, keyPath)
+				}
+				return decryptValue(envVal, key)
+			}
+			return envVal, nil
+		}
+
 		// first replace ${var.NAME} and envs
 		val = resolveValueWithVars(val, cfg)
 		if strings.HasPrefix(val, "enc:") {
@@ -570,15 +589,15 @@ func EncryptConfigSecrets(cfg *Config, configPath string, baseDir string) (bool,
 
 	changed := false
 
-	// encrypt vars
-	if cfg.Vars == nil {
-		cfg.Vars = make(map[string]string)
+	// encrypt environment map
+	if cfg.Environment == nil {
+		cfg.Environment = make(map[string]string)
 	}
-	for k, v := range cfg.Vars {
+	for k, v := range cfg.Environment {
 		if v == "" {
 			continue
 		}
-		// skip already encrypted or env refs or var refs
+		// skip already encrypted or env var references (like ${...}) or var refs
 		if strings.HasPrefix(v, "enc:") || isEnvVarReference(v) || strings.Contains(v, "${var.") {
 			continue
 		}
@@ -586,7 +605,7 @@ func EncryptConfigSecrets(cfg *Config, configPath string, baseDir string) (bool,
 		if err != nil {
 			return false, err
 		}
-		cfg.Vars[k] = enc
+		cfg.Environment[k] = enc
 		changed = true
 	}
 

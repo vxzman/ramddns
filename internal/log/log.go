@@ -24,7 +24,7 @@ const (
 	ErrorLevel
 	// FatalLevel logs critical errors that cause termination
 	FatalLevel
-	// SuccessLevel logs successful operations (ipflow specific)
+	// SuccessLevel logs successful operations (aiolos specific)
 	SuccessLevel
 )
 

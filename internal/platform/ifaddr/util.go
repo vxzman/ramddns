@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"ipflow/internal/log"
+	"aiolos/internal/log"
 )
 
 // GetIPv6FromAPIs queries remote APIs for IPv6 addresses

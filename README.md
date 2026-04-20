@@ -1,10 +1,10 @@
-# ipflow - 动态 DNS 客户端
+# aiolos - 动态 DNS 客户端
 
 [![Go Version](https://img.shields.io/badge/go-1.21-blue.svg)](https://go.dev)
 [![License](https://img.shields.io/badge/license-BSD_3--Clause-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20FreeBSD%20%7C%20OpenBSD%20%7C%20macOS-yellow)](README.md)
 
-**ipflow** 是一个用 Go 编写的轻量级动态 DNS (DDNS) 客户端，支持多域名、多服务商、IPv6，具备跨平台能力和丰富的日志输出。
+**aiolos** 是一个用 Go 编写的轻量级动态 DNS (DDNS) 客户端，支持多域名、多服务商、IPv6，具备跨平台能力和丰富的日志输出。
 
 ---
 
@@ -41,10 +41,10 @@
 
 ```bash
 # 基础构建
-go build -o ipflow ./cmd/ipflow
+go build -o aiolos ./cmd/aiolos
 
 # 带版本信息构建
-go build -ldflags "-X main.version=v2.0.0" -o ipflow ./cmd/ipflow
+go build -ldflags "-X main.version=v2.0.0" -o aiolos ./cmd/aiolos
 
 # 使用构建脚本
 chmod +x build.sh
@@ -62,7 +62,7 @@ chmod +x build.sh
             "interface": "eth0",
             "urls": ["https://ipv6.icanhazip.com"]
         },
-        "work_dir": "/var/lib/ipflow",
+        "work_dir": "/var/lib/aiolos",
         "log_output": "shell"
     },
     "records": [
@@ -143,7 +143,7 @@ export CLOUDFLARE_API_TOKEN="your_api_token_here"
 
 ### 安全性要求
 
-> ⚠️ **重要**：出于安全考虑，ipflow **禁止在配置文件中明文存储密钥信息**。所有敏感信息必须使用环境变量引用。
+> ⚠️ **重要**：出于安全考虑，aiolos **禁止在配置文件中明文存储密钥信息**。所有敏感信息必须使用环境变量引用。
 
 ❌ **错误示例**（会被拒绝执行）：
 ```json
@@ -178,7 +178,7 @@ export CLOUDFLARE_API_TOKEN="your_api_token_here"
                 "https://6.ipw.cn"
             ]
         },
-        "work_dir": "/var/lib/ipflow",
+        "work_dir": "/var/lib/aiolos",
         "log_output": "shell",
         "proxy": ""
     },
@@ -284,7 +284,7 @@ export ALIYUN_ACCESS_KEY_ID="LTAI1234567890"
 export ALIYUN_ACCESS_KEY_SECRET="your_secret_here"
 
 # 运行
-./ipflow run -f config.json
+./aiolos run -f config.json
 ```
 
 ### 环境变量默认值
@@ -312,14 +312,14 @@ export ALIYUN_ACCESS_KEY_SECRET="your_secret_here"
 #### 1. 创建配置文件
 
 ```bash
-sudo mkdir -p /etc/ipflow
-sudo nano /etc/ipflow/config.json
+sudo mkdir -p /etc/aiolos
+sudo nano /etc/aiolos/config.json
 ```
 
 #### 2. 创建 systemd 服务和定时器
 
 ```ini
-# /etc/systemd/system/ipflow.service
+# /etc/systemd/system/aiolos.service
 [Unit]
 Description=Dynamic DNS client
 After=network.target
@@ -327,10 +327,10 @@ After=network.target
 [Service]
 Type=oneshot
 Environment="CLOUDFLARE_API_TOKEN=your_token_here"
-ExecStart=/usr/local/bin/ipflow run -f /etc/ipflow/config.json
-WorkingDirectory=/etc/ipflow
-StandardOutput=append:/var/log/ipflow.log
-StandardError=append:/var/log/ipflow.log
+ExecStart=/usr/local/bin/aiolos run -f /etc/aiolos/config.json
+WorkingDirectory=/etc/aiolos
+StandardOutput=append:/var/log/aiolos.log
+StandardError=append:/var/log/aiolos.log
 Restart=no
 
 [Install]
@@ -338,9 +338,9 @@ WantedBy=multi-user.target
 ```
 
 ```ini
-# /etc/systemd/system/ipflow.timer
+# /etc/systemd/system/aiolos.timer
 [Unit]
-Description=Run ipflow every 5 minutes
+Description=Run aiolos every 5 minutes
 
 [Timer]
 OnBootSec=5min
@@ -360,7 +360,7 @@ WantedBy=timers.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now ipflow.timer
+sudo systemctl enable --now aiolos.timer
 ```
 
 ---
@@ -371,20 +371,20 @@ sudo systemctl enable --now ipflow.timer
 
 ```bash
 #!/bin/bash
-# /etc/ipflow/run-ipflow.sh
+# /etc/aiolos/run-aiolos.sh
 
 # 配置环境变量
 export CLOUDFLARE_API_TOKEN="your_token_here"
 export ALIYUN_ACCESS_KEY_ID="your_access_key_id"
 export ALIYUN_ACCESS_KEY_SECRET="your_access_key_secret"
 
-# 执行 ipflow
-/usr/local/bin/ipflow run -f /etc/ipflow/config.json
+# 执行 aiolos
+/usr/local/bin/aiolos run -f /etc/aiolos/config.json
 ```
 
 设置权限：
 ```bash
-sudo chmod +x /etc/ipflow/run-ipflow.sh
+sudo chmod +x /etc/aiolos/run-aiolos.sh
 ```
 
 #### 2. 配置 crontab
@@ -396,7 +396,7 @@ sudo crontab -e
 添加以下内容（每 5 分钟执行一次）：
 
 ```cron
-*/5 * * * * /etc/ipflow/run-ipflow.sh >> /var/log/ipflow.log 2>&1
+*/5 * * * * /etc/aiolos/run-aiolos.sh >> /var/log/aiolos.log 2>&1
 ```
 
 > **提示**：根据实际需求调整执行频率，参考下方的时间格式说明。
@@ -433,13 +433,13 @@ macOS 使用 `launchd` 管理后台任务，支持开机启动和定时执行。
 #### 1. 创建配置文件
 
 ```bash
-sudo mkdir -p /etc/ipflow
-sudo nano /etc/ipflow/config.json
+sudo mkdir -p /etc/aiolos
+sudo nano /etc/aiolos/config.json
 ```
 
 #### 2. 创建 launchd plist
 
-创建 `/Library/LaunchDaemons/com.ipflow.plist`：
+创建 `/Library/LaunchDaemons/com.aiolos.plist`：
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -447,13 +447,13 @@ sudo nano /etc/ipflow/config.json
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.ipflow</string>
+    <string>com.aiolos</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/ipflow</string>
+        <string>/usr/local/bin/aiolos</string>
         <string>run</string>
         <string>-f</string>
-        <string>/etc/ipflow/config.json</string>
+        <string>/etc/aiolos/config.json</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
@@ -469,9 +469,9 @@ sudo nano /etc/ipflow/config.json
     <key>RunAtLoad</key>
     <true/>  <!-- 加载时立即执行一次 -->
     <key>StandardOutPath</key>
-    <string>/var/log/ipflow.log</string>
+    <string>/var/log/aiolos.log</string>
     <key>StandardErrorPath</key>
-    <string>/var/log/ipflow.log</string>
+    <string>/var/log/aiolos.log</string>
 </dict>
 </plist>
 ```
@@ -480,28 +480,28 @@ sudo nano /etc/ipflow/config.json
 
 ```bash
 # 设置正确权限
-sudo chown root:wheel /Library/LaunchDaemons/com.ipflow.plist
-sudo chmod 644 /Library/LaunchDaemons/com.ipflow.plist
+sudo chown root:wheel /Library/LaunchDaemons/com.aiolos.plist
+sudo chmod 644 /Library/LaunchDaemons/com.aiolos.plist
 
 # 加载服务
-sudo launchctl load /Library/LaunchDaemons/com.ipflow.plist
+sudo launchctl load /Library/LaunchDaemons/com.aiolos.plist
 
 # 验证服务状态
-sudo launchctl list | grep ipflow
+sudo launchctl list | grep aiolos
 ```
 
 #### 4. 管理服务
 
 ```bash
 # 停止服务
-sudo launchctl unload /Library/LaunchDaemons/com.ipflow.plist
+sudo launchctl unload /Library/LaunchDaemons/com.aiolos.plist
 
 # 重新加载（修改配置后）
-sudo launchctl unload /Library/LaunchDaemons/com.ipflow.plist
-sudo launchctl load /Library/LaunchDaemons/com.ipflow.plist
+sudo launchctl unload /Library/LaunchDaemons/com.aiolos.plist
+sudo launchctl load /Library/LaunchDaemons/com.aiolos.plist
 
 # 查看日志
-tail -f /var/log/ipflow.log
+tail -f /var/log/aiolos.log
 ```
 
 > **提示**：`StartInterval` 单位为秒，300 表示每 5 分钟执行一次。也可使用 `StartCalendarInterval` 实现类似 cron 的定时表达式。
@@ -524,8 +524,8 @@ tail -f /var/log/ipflow.log
 ## 项目结构
 
 ```
-ipflow/
-├── cmd/ipflow/           # 主程序入口
+aiolos/
+├── cmd/aiolos/           # 主程序入口
 │   ├── main.go
 │   └── cmd.go
 ├── internal/
@@ -559,7 +559,7 @@ ipflow/
 
 ### 1. 配置文件 JSON 格式错误怎么办？
 
-ipflow 会自动检测并提示 JSON 格式错误，包括：
+aiolos 会自动检测并提示 JSON 格式错误，包括：
 - **缺少逗号** - 在对象或数组元素之间需要逗号分隔
 - **多余逗号** - 最后一个元素后不应有逗号
 - **引号问题** - 键和字符串值必须使用双引号 `""`

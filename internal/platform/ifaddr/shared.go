@@ -9,14 +9,14 @@ import (
 // IPv6Info contains information about an IPv6 address
 // 统一结构体，供各平台实现复用
 type IPv6Info struct {
-	IP             net.IP
-	Scope          string
-	AddressState   string
-	PreferredLft   time.Duration
-	ValidLft       time.Duration
-	IsDeprecated   bool
-	IsUniqueLocal  bool
-	IsCandidate    bool // Whether it is a DDNS candidate
+	IP            net.IP
+	Scope         string
+	AddressState  string
+	PreferredLft  time.Duration
+	ValidLft      time.Duration
+	IsDeprecated  bool
+	IsUniqueLocal bool
+	IsCandidate   bool // Whether it is a DDNS candidate
 }
 
 // populateInfo 填充 IPv6Info 的附加属性

@@ -4,7 +4,7 @@
       "Bash(mv *)",
       "Bash(go *)",
       "Bash(/usr/local/go/bin/go *)",
-      "Bash(./ipflow *)",
+      "Bash(./aiolos *)",
       "Bash(rm *)",
       "Bash(git rm *)",
       "Bash(git reset *)",

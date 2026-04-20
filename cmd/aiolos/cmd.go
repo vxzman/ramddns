@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"ipflow/internal/config"
-	"ipflow/internal/log"
-	"ipflow/internal/platform/ifaddr"
-	"ipflow/internal/provider/cloudflare"
-	"ipflow/internal/provider/factory"
+	"aiolos/internal/config"
+	"aiolos/internal/log"
+	"aiolos/internal/platform/ifaddr"
+	"aiolos/internal/provider/cloudflare"
+	"aiolos/internal/provider/factory"
 	"github.com/spf13/cobra"
 )
 

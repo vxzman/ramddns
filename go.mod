@@ -1,4 +1,4 @@
-module ipflow
+module aiolos
 
 go 1.22
 

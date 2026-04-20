@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ipflow/internal/log"
+	"aiolos/internal/log"
 )
 
 // IPSource source for obtaining IP

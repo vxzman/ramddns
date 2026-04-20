@@ -23,7 +23,7 @@ type RecordExtra map[string]interface{}
 type ProxySupporter interface {
 	// SetProxy sets the proxy URL for the provider
 	SetProxy(proxyURL string) error
-	
+
 	// GetProxy returns the current proxy URL
 	GetProxy() string
 }

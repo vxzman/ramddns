@@ -7,10 +7,10 @@ import (
 
 // JSONErrorInfo holds information about a JSON parsing error
 type JSONErrorInfo struct {
-	Line       int
-	Column     int
+	Line        int
+	Column      int
 	LineContent string
-	Message    string
+	Message     string
 }
 
 // CalculateLineColumn calculates line and column from byte offset

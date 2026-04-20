@@ -10,7 +10,7 @@ cache.lastip
 *.swp
 *.swo
 要求.txt
-ipflow
+aiolos
 goddns
 build/
 .qwen/

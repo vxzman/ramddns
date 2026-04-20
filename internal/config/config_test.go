@@ -324,21 +324,21 @@ func TestValidateProxyURL(t *testing.T) {
 
 func TestGetCacheFilePath(t *testing.T) {
 	tests := []struct {
-		name      string
-		configFile string
-		workDir   string
+		name         string
+		configFile   string
+		workDir      string
 		wantContains string
 	}{
 		{
-			name:      "with_work_dir",
-			configFile: "/etc/ipflow/config.json",
-			workDir:   "/var/lib/ipflow",
+			name:         "with_work_dir",
+			configFile:   "/etc/aiolos/config.json",
+			workDir:      "/var/lib/aiolos",
 			wantContains: "cache.lastip",
 		},
 		{
-			name:      "without_work_dir",
-			configFile: "/etc/ipflow/config.json",
-			workDir:   "",
+			name:         "without_work_dir",
+			configFile:   "/etc/aiolos/config.json",
+			workDir:      "",
 			wantContains: "cache.lastip",
 		},
 	}
@@ -418,8 +418,8 @@ func TestGetRecordProxy(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		record   *RecordConfig
+		name      string
+		record    *RecordConfig
 		wantProxy string
 	}{
 		{
@@ -450,9 +450,9 @@ func TestGetRecordProxy(t *testing.T) {
 
 func TestGetRecordTTL(t *testing.T) {
 	tests := []struct {
-		name     string
-		record   *RecordConfig
-		wantTTL  int
+		name    string
+		record  *RecordConfig
+		wantTTL int
 	}{
 		{
 			name: "cloudflare_with_record_ttl",

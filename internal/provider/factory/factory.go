@@ -4,10 +4,10 @@ package factory
 import (
 	"fmt"
 
-	"ipflow/internal/config"
-	"ipflow/internal/provider"
-	"ipflow/internal/provider/aliyun"
-	"ipflow/internal/provider/cloudflare"
+	"aiolos/internal/config"
+	"aiolos/internal/provider"
+	"aiolos/internal/provider/aliyun"
+	"aiolos/internal/provider/cloudflare"
 )
 
 // ProviderRegistry maps provider names to factory functions

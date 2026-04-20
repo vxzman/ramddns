@@ -8,12 +8,12 @@ import (
 
 func TestPopulateInfo(t *testing.T) {
 	tests := []struct {
-		name           string
-		input          IPv6Info
-		wantScope      string
+		name              string
+		input             IPv6Info
+		wantScope         string
 		wantIsUniqueLocal bool
-		wantIsDeprecated bool
-		wantIsCandidate bool
+		wantIsDeprecated  bool
+		wantIsCandidate   bool
 	}{
 		{
 			name: "global_unicast",
@@ -22,10 +22,10 @@ func TestPopulateInfo(t *testing.T) {
 				PreferredLft: time.Hour * 24,
 				ValidLft:     time.Hour * 48,
 			},
-			wantScope:      "Global Unicast",
+			wantScope:         "Global Unicast",
 			wantIsUniqueLocal: false,
-			wantIsDeprecated: false,
-			wantIsCandidate: true,
+			wantIsDeprecated:  false,
+			wantIsCandidate:   true,
 		},
 		{
 			name: "unique_local",
@@ -34,10 +34,10 @@ func TestPopulateInfo(t *testing.T) {
 				PreferredLft: time.Hour * 24,
 				ValidLft:     time.Hour * 48,
 			},
-			wantScope:      "Unique Local (ULA)",
+			wantScope:         "Unique Local (ULA)",
 			wantIsUniqueLocal: true,
-			wantIsDeprecated: false,
-			wantIsCandidate: false,
+			wantIsDeprecated:  false,
+			wantIsCandidate:   false,
 		},
 		{
 			name: "unique_local_fd",
@@ -46,10 +46,10 @@ func TestPopulateInfo(t *testing.T) {
 				PreferredLft: time.Hour * 24,
 				ValidLft:     time.Hour * 48,
 			},
-			wantScope:      "Unique Local (ULA)",
+			wantScope:         "Unique Local (ULA)",
 			wantIsUniqueLocal: true,
-			wantIsDeprecated: false,
-			wantIsCandidate: false,
+			wantIsDeprecated:  false,
+			wantIsCandidate:   false,
 		},
 		{
 			name: "link_local",
@@ -58,10 +58,10 @@ func TestPopulateInfo(t *testing.T) {
 				PreferredLft: time.Hour * 24,
 				ValidLft:     time.Hour * 48,
 			},
-			wantScope:      "Link Local",
+			wantScope:         "Link Local",
 			wantIsUniqueLocal: false,
-			wantIsDeprecated: false,
-			wantIsCandidate: false,
+			wantIsDeprecated:  false,
+			wantIsCandidate:   false,
 		},
 		{
 			name: "deprecated_address",
@@ -70,10 +70,10 @@ func TestPopulateInfo(t *testing.T) {
 				PreferredLft: 0,
 				ValidLft:     time.Hour * 24,
 			},
-			wantScope:      "Global Unicast",
+			wantScope:         "Global Unicast",
 			wantIsUniqueLocal: false,
-			wantIsDeprecated: true,
-			wantIsCandidate: false,
+			wantIsDeprecated:  true,
+			wantIsCandidate:   false,
 		},
 		{
 			name: "expired_address",
@@ -82,10 +82,10 @@ func TestPopulateInfo(t *testing.T) {
 				PreferredLft: 0,
 				ValidLft:     0,
 			},
-			wantScope:      "Global Unicast",
+			wantScope:         "Global Unicast",
 			wantIsUniqueLocal: false,
-			wantIsDeprecated: false, // Expired (ValidLft=0) is different from Deprecated
-			wantIsCandidate: false,  // Not a candidate because ValidLft=0
+			wantIsDeprecated:  false, // Expired (ValidLft=0) is different from Deprecated
+			wantIsCandidate:   false, // Not a candidate because ValidLft=0
 		},
 		{
 			name: "preferred_dynamic",
@@ -94,10 +94,10 @@ func TestPopulateInfo(t *testing.T) {
 				PreferredLft: time.Hour * 12,
 				ValidLft:     time.Hour * 24,
 			},
-			wantScope:      "Global Unicast",
+			wantScope:         "Global Unicast",
 			wantIsUniqueLocal: false,
-			wantIsDeprecated: false,
-			wantIsCandidate: true,
+			wantIsDeprecated:  false,
+			wantIsCandidate:   true,
 		},
 		{
 			name: "preferred_static",
@@ -106,10 +106,10 @@ func TestPopulateInfo(t *testing.T) {
 				PreferredLft: time.Hour * 24 * 365,
 				ValidLft:     time.Hour * 24 * 365,
 			},
-			wantScope:      "Global Unicast",
+			wantScope:         "Global Unicast",
 			wantIsUniqueLocal: false,
-			wantIsDeprecated: false,
-			wantIsCandidate: true,
+			wantIsDeprecated:  false,
+			wantIsCandidate:   true,
 		},
 	}
 
@@ -171,18 +171,18 @@ func TestFilterValidAddresses(t *testing.T) {
 			name: "all_valid",
 			input: []IPv6Info{
 				{
-					IP: net.ParseIP("2001:db8::1"),
-					Scope: "Global Unicast",
+					IP:           net.ParseIP("2001:db8::1"),
+					Scope:        "Global Unicast",
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
-					IsCandidate: true,
+					ValidLft:     baseTime * 2,
+					IsCandidate:  true,
 				},
 				{
-					IP: net.ParseIP("2001:db8::2"),
-					Scope: "Global Unicast",
+					IP:           net.ParseIP("2001:db8::2"),
+					Scope:        "Global Unicast",
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
-					IsCandidate: true,
+					ValidLft:     baseTime * 2,
+					IsCandidate:  true,
 				},
 			},
 			wantCount: 2,
@@ -191,16 +191,16 @@ func TestFilterValidAddresses(t *testing.T) {
 			name: "filter_nil_ip",
 			input: []IPv6Info{
 				{
-					IP: nil,
+					IP:           nil,
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
+					ValidLft:     baseTime * 2,
 				},
 				{
-					IP: net.ParseIP("2001:db8::1"),
-					Scope: "Global Unicast",
+					IP:           net.ParseIP("2001:db8::1"),
+					Scope:        "Global Unicast",
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
-					IsCandidate: true,
+					ValidLft:     baseTime * 2,
+					IsCandidate:  true,
 				},
 			},
 			wantCount: 1,
@@ -209,16 +209,16 @@ func TestFilterValidAddresses(t *testing.T) {
 			name: "filter_ipv4",
 			input: []IPv6Info{
 				{
-					IP: net.ParseIP("192.168.1.1"),
+					IP:           net.ParseIP("192.168.1.1"),
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
+					ValidLft:     baseTime * 2,
 				},
 				{
-					IP: net.ParseIP("2001:db8::1"),
-					Scope: "Global Unicast",
+					IP:           net.ParseIP("2001:db8::1"),
+					Scope:        "Global Unicast",
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
-					IsCandidate: true,
+					ValidLft:     baseTime * 2,
+					IsCandidate:  true,
 				},
 			},
 			wantCount: 1,
@@ -227,16 +227,16 @@ func TestFilterValidAddresses(t *testing.T) {
 			name: "filter_link_local",
 			input: []IPv6Info{
 				{
-					IP: net.ParseIP("fe80::1"),
+					IP:           net.ParseIP("fe80::1"),
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
+					ValidLft:     baseTime * 2,
 				},
 				{
-					IP: net.ParseIP("2001:db8::1"),
-					Scope: "Global Unicast",
+					IP:           net.ParseIP("2001:db8::1"),
+					Scope:        "Global Unicast",
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
-					IsCandidate: true,
+					ValidLft:     baseTime * 2,
+					IsCandidate:  true,
 				},
 			},
 			wantCount: 1,
@@ -245,16 +245,16 @@ func TestFilterValidAddresses(t *testing.T) {
 			name: "filter_expired",
 			input: []IPv6Info{
 				{
-					IP: net.ParseIP("2001:db8::1"),
+					IP:           net.ParseIP("2001:db8::1"),
 					PreferredLft: baseTime,
-					ValidLft: 0, // expired
+					ValidLft:     0, // expired
 				},
 				{
-					IP: net.ParseIP("2001:db8::2"),
-					Scope: "Global Unicast",
+					IP:           net.ParseIP("2001:db8::2"),
+					Scope:        "Global Unicast",
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
-					IsCandidate: true,
+					ValidLft:     baseTime * 2,
+					IsCandidate:  true,
 				},
 			},
 			wantCount: 1,
@@ -263,18 +263,18 @@ func TestFilterValidAddresses(t *testing.T) {
 			name: "filter_deprecated",
 			input: []IPv6Info{
 				{
-					IP: net.ParseIP("2001:db8::1"),
-					Scope: "Global Unicast",
+					IP:           net.ParseIP("2001:db8::1"),
+					Scope:        "Global Unicast",
 					PreferredLft: 0,
-					ValidLft: baseTime,
+					ValidLft:     baseTime,
 					IsDeprecated: true,
 				},
 				{
-					IP: net.ParseIP("2001:db8::2"),
-					Scope: "Global Unicast",
+					IP:           net.ParseIP("2001:db8::2"),
+					Scope:        "Global Unicast",
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
-					IsCandidate: true,
+					ValidLft:     baseTime * 2,
+					IsCandidate:  true,
 				},
 			},
 			wantCount: 1,
@@ -283,17 +283,17 @@ func TestFilterValidAddresses(t *testing.T) {
 			name: "filter_unique_local",
 			input: []IPv6Info{
 				{
-					IP: net.ParseIP("fd00::1"),
-					Scope: "Unique Local (ULA)",
+					IP:           net.ParseIP("fd00::1"),
+					Scope:        "Unique Local (ULA)",
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
+					ValidLft:     baseTime * 2,
 				},
 				{
-					IP: net.ParseIP("2001:db8::1"),
-					Scope: "Global Unicast",
+					IP:           net.ParseIP("2001:db8::1"),
+					Scope:        "Global Unicast",
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
-					IsCandidate: true,
+					ValidLft:     baseTime * 2,
+					IsCandidate:  true,
 				},
 			},
 			wantCount: 1,
@@ -302,14 +302,14 @@ func TestFilterValidAddresses(t *testing.T) {
 			name: "all_filtered",
 			input: []IPv6Info{
 				{
-					IP: net.ParseIP("fe80::1"),
+					IP:           net.ParseIP("fe80::1"),
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
+					ValidLft:     baseTime * 2,
 				},
 				{
-					IP: net.ParseIP("fd00::1"),
+					IP:           net.ParseIP("fd00::1"),
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
+					ValidLft:     baseTime * 2,
 				},
 			},
 			wantCount: 0,
@@ -330,20 +330,20 @@ func TestSelectBestIPv6(t *testing.T) {
 	baseTime := time.Hour * 100
 
 	tests := []struct {
-		name      string
-		input     []IPv6Info
-		wantIP    string
-		wantErr   bool
+		name    string
+		input   []IPv6Info
+		wantIP  string
+		wantErr bool
 	}{
 		{
 			name: "single_valid",
 			input: []IPv6Info{
 				{
-					IP: net.ParseIP("2001:db8::1"),
-					Scope: "Global Unicast",
+					IP:           net.ParseIP("2001:db8::1"),
+					Scope:        "Global Unicast",
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
-					IsCandidate: true,
+					ValidLft:     baseTime * 2,
+					IsCandidate:  true,
 				},
 			},
 			wantIP:  "2001:db8::1",
@@ -353,25 +353,25 @@ func TestSelectBestIPv6(t *testing.T) {
 			name: "select_longest_preferred",
 			input: []IPv6Info{
 				{
-					IP: net.ParseIP("2001:db8::1"),
-					Scope: "Global Unicast",
+					IP:           net.ParseIP("2001:db8::1"),
+					Scope:        "Global Unicast",
 					PreferredLft: time.Hour * 50,
-					ValidLft: time.Hour * 100,
-					IsCandidate: true,
+					ValidLft:     time.Hour * 100,
+					IsCandidate:  true,
 				},
 				{
-					IP: net.ParseIP("2001:db8::2"),
-					Scope: "Global Unicast",
+					IP:           net.ParseIP("2001:db8::2"),
+					Scope:        "Global Unicast",
 					PreferredLft: time.Hour * 200,
-					ValidLft: time.Hour * 300,
-					IsCandidate: true,
+					ValidLft:     time.Hour * 300,
+					IsCandidate:  true,
 				},
 				{
-					IP: net.ParseIP("2001:db8::3"),
-					Scope: "Global Unicast",
+					IP:           net.ParseIP("2001:db8::3"),
+					Scope:        "Global Unicast",
 					PreferredLft: time.Hour * 100,
-					ValidLft: time.Hour * 200,
-					IsCandidate: true,
+					ValidLft:     time.Hour * 200,
+					IsCandidate:  true,
 				},
 			},
 			wantIP:  "2001:db8::2",
@@ -381,23 +381,23 @@ func TestSelectBestIPv6(t *testing.T) {
 			name: "no_valid_addresses",
 			input: []IPv6Info{
 				{
-					IP: net.ParseIP("fe80::1"),
+					IP:           net.ParseIP("fe80::1"),
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
+					ValidLft:     baseTime * 2,
 				},
 				{
-					IP: net.ParseIP("fd00::1"),
+					IP:           net.ParseIP("fd00::1"),
 					PreferredLft: baseTime,
-					ValidLft: baseTime * 2,
+					ValidLft:     baseTime * 2,
 				},
 			},
 			wantIP:  "",
 			wantErr: true,
 		},
 		{
-			name: "empty_input",
-			input: []IPv6Info{},
-			wantIP: "",
+			name:    "empty_input",
+			input:   []IPv6Info{},
+			wantIP:  "",
 			wantErr: true,
 		},
 	}

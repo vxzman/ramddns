@@ -1,5 +1,5 @@
 #!/bin/sh
-# ipflow 构建脚本
+# aiolos 构建脚本
 # 用法:
 #   ./build.sh              - 构建开发版本 (当前平台)
 #   ./build.sh v2.0.0       - 构建指定版本 (当前平台)
@@ -43,9 +43,9 @@ log_error() {
 
 # 清理旧二进制文件
 cleanup() {
-    if [ -f "ipflow" ]; then
+    if [ -f "aiolos" ]; then
         log_info "Removing old binary..."
-        rm -f ipflow
+        rm -f aiolos
     fi
     # 清理交叉编译产物
     if [ -d "build" ]; then
@@ -59,20 +59,20 @@ build() {
     GOOS=$1
     GOARCH=$2
 
-    OUTPUT_NAME="ipflow"
+    OUTPUT_NAME="aiolos"
     if [ "$BUILD_TYPE" = "all" ]; then
-        OUTPUT_NAME="build/ipflow-${GOOS}-${GOARCH}"
+        OUTPUT_NAME="build/aiolos-${GOOS}-${GOARCH}"
         mkdir -p build
     fi
 
-    log_info "Building ipflow ${VERSION} for ${GOOS}/${GOARCH}..."
+    log_info "Building aiolos ${VERSION} for ${GOOS}/${GOARCH}..."
 
     LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}"
 
     GOOS=$GOOS GOARCH=$GOARCH go build \
         -ldflags "$LDFLAGS" \
         -o "$OUTPUT_NAME" \
-        ./cmd/ipflow
+        ./cmd/aiolos
 
     if [ $? -eq 0 ]; then
         log_info "Build completed: $OUTPUT_NAME"
@@ -87,15 +87,15 @@ case "$BUILD_TYPE" in
     current)
         # 构建当前平台
         cleanup
-        log_info "Building ipflow ${VERSION} (${COMMIT}) for current platform..."
+        log_info "Building aiolos ${VERSION} (${COMMIT}) for current platform..."
         build "$(go env GOOS)" "$(go env GOARCH)"
-        log_info "Build completed. Run './ipflow version' to check version."
+        log_info "Build completed. Run './aiolos version' to check version."
         ;;
     
     all)
         # 构建所有支持的平台
         cleanup
-        log_info "Building ipflow ${VERSION} (${COMMIT}) for all platforms..."
+        log_info "Building aiolos ${VERSION} (${COMMIT}) for all platforms..."
         
         # Linux
         build "linux" "amd64"
@@ -117,7 +117,7 @@ case "$BUILD_TYPE" in
     
     linux)
         cleanup
-        log_info "Building ipflow ${VERSION} for Linux..."
+        log_info "Building aiolos ${VERSION} for Linux..."
         build "linux" "amd64"
         build "linux" "arm64"
         log_info "Linux builds completed."
@@ -125,7 +125,7 @@ case "$BUILD_TYPE" in
     
     darwin)
         cleanup
-        log_info "Building ipflow ${VERSION} for macOS..."
+        log_info "Building aiolos ${VERSION} for macOS..."
         build "darwin" "amd64"
         build "darwin" "arm64"
         log_info "macOS builds completed."

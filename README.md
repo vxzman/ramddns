@@ -38,10 +38,9 @@ Aiolos 是一个**轻量级、多平台的动态 DNS (DDNS) 客户端**，专为
 
 ### 🔒 安全特性
 
-- **敏感信息加密**：AES-GCM 加密存储 API 凭证
-- **密钥隔离**：加密密钥独立存储（`.aiolos.key`，权限 0600）
+- **敏感信息集中管理**：所有 API 凭证在 `environment` 字段中统一管理
+- **变量引用**：支持 `$变量名` 方式引用 environment 中的值
 - **日志脱敏**：自动隐藏敏感信息，防止泄露
-- **配置集中管理**：所有敏感信息在配置文件 `environment` 字段中统一管理
 
 ### 🛠️ 运维友好
 
@@ -49,7 +48,6 @@ Aiolos 是一个**轻量级、多平台的动态 DNS (DDNS) 客户端**，专为
 - **缓存机制**：IP 未变化时不触发 API 更新
 - **灵活日志**：支持标准输出或文件，可配置日志级别
 - **代理支持**：Cloudflare 支持 HTTP/SOCKS5 代理
-- **变量引用**：支持 `$变量名` 方式引用 environment 中的值
 
 ---
 
@@ -476,37 +474,6 @@ Aiolos 仅支持引用配置文件顶层 `environment` 中定义的变量。
 
 ---
 
-### 敏感信息加密
-
-#### 自动加密
-
-首次运行时，明文敏感值会被自动加密为 `enc:...` 格式：
-
-```json
-{
-  "environment": {
-    "cloudflare_var": "enc:AES_GCM_ENCRYPTED_VALUE..."
-  }
-}
-```
-
-#### 密钥管理
-
-- **密钥文件**：`{work_dir}/.aiolos.key`
-- **文件权限**：0600（仅所有者可读写）
-- **加密算法**：AES-GCM
-
-#### 预加密（CI/CD 场景）
-
-在 CI 或镜像构建阶段预先加密敏感值，避免运行时写回配置：
-
-```bash
-# 使用 aiolos 工具加密（如果提供）
-./aiolos encrypt --value "your_api_token" --key-file .aiolos.key
-```
-
----
-
 ## 🖥️ 命令行参数
 
 ### 命令结构
@@ -766,19 +733,7 @@ aiolos run -c config.json -d /etc/aiolos -t 600
 
 ### 常见问题
 
-#### 1. 启动失败：缺少密钥文件
-
-**错误信息**：
-```
-[FATAL] 无法解密敏感值：缺少密钥文件 .aiolos.key
-```
-
-**解决方案**：
-- 确保 `--dir` 参数指向正确的目录
-- 检查 `.aiolos.key` 文件是否存在
-- 如果是首次运行，确保配置文件中的敏感值为明文（会自动加密）
-
-#### 2. IP 获取失败
+#### 1. IP 获取失败
 
 **错误信息**：
 ```
@@ -790,7 +745,7 @@ aiolos run -c config.json -d /etc/aiolos -t 600
 - 确保系统已启用 IPv6
 - 尝试使用 API 方式获取（配置 `urls` 字段）
 
-#### 3. Cloudflare API 权限不足
+#### 2. Cloudflare API 权限不足
 
 **错误信息**：
 ```
@@ -802,7 +757,7 @@ aiolos run -c config.json -d /etc/aiolos -t 600
 - 确保 Token 具有 `Zone:DNS:Edit` 权限
 - 检查 Zone ID 是否正确
 
-#### 4. 阿里云签名失败
+#### 3. 阿里云签名失败
 
 **错误信息**：
 ```

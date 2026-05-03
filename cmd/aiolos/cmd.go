@@ -82,14 +82,7 @@ var runCmd = &cobra.Command{
 			baseDir = filepath.Dir(absConfigFile)
 		}
 
-		if changed, err := config.EncryptConfigSecrets(cfg, absConfigFile, dirPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to encrypt config secrets: %v\n", err)
-			os.Exit(1)
-		} else if changed {
-			fmt.Fprintf(os.Stderr, "Encrypted plaintext secrets in config and updated %s\n", absConfigFile)
-		}
-
-		if err := config.ResolveSecrets(cfg, baseDir); err != nil {
+		if err := config.ResolveSecrets(cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to resolve secrets: %v\n", err)
 			os.Exit(1)
 		}

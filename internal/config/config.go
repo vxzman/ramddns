@@ -99,35 +99,9 @@ func resolveValue(s string, cfg *Config) string {
 	return cfg.Environment[name]
 }
 
-// ResolveSecrets resolves $name references and decrypts enc: values using a key file.
-func ResolveSecrets(cfg *Config, baseDir string) error {
-	keyPath := filepath.Join(baseDir, ".aiolos.key")
-	var key []byte
-	if _, err := os.Stat(keyPath); err == nil {
-		k, err := os.ReadFile(keyPath)
-		if err != nil {
-			return fmt.Errorf("failed to read key file: %w", err)
-		}
-		key = k
-	}
-
-	// Decrypt environment values
-	for k, v := range cfg.Environment {
-		if v == "" {
-			continue
-		}
-		if strings.HasPrefix(v, "enc:") {
-			if key == nil {
-				return fmt.Errorf("encrypted environment %s found but key file missing: %s", k, keyPath)
-			}
-			dec, err := decryptValue(v, key)
-			if err != nil {
-				return fmt.Errorf("failed to decrypt environment %s: %w", k, err)
-			}
-			cfg.Environment[k] = dec
-		}
-	}
-
+// ResolveSecrets resolves $name references from environment section.
+// Simple plaintext resolution - no encryption support.
+func ResolveSecrets(cfg *Config) error {
 	// Helper to resolve a single value
 	resolve := func(val string) (string, error) {
 		if val == "" {
@@ -142,20 +116,7 @@ func ResolveSecrets(cfg *Config, baseDir string) error {
 			if !ok || envVal == "" {
 				return "", fmt.Errorf("environment variable %s is not set", name)
 			}
-			if strings.HasPrefix(envVal, "enc:") {
-				if key == nil {
-					return "", fmt.Errorf("encrypted value found for %s but key file missing: %s", name, keyPath)
-				}
-				return decryptValue(envVal, key)
-			}
 			return envVal, nil
-		}
-
-		if strings.HasPrefix(val, "enc:") {
-			if key == nil {
-				return "", fmt.Errorf("encrypted value found but key file missing: %s", keyPath)
-			}
-			return decryptValue(val, key)
 		}
 		return val, nil
 	}

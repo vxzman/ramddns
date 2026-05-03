@@ -1,54 +1,44 @@
-// ============================================================
-// Aiolos 配置文件 — 所有注释仅供说明，运行时请移除或保留均可
-// JSON 标准不支持注释，但 VS Code / nvim-tree 等编辑器均可解析
-// ============================================================
 {
-  // === environment ===
-  // 敏感信息集中存放，通过 $变量名 在 records 中引用。
-  // 仅支持 $name 语法，不支持 ${name} 或系统环境变量。
   "environment": {
     "cf_token": "your_cloudflare_api_token",
     "cf_zone": "your_cloudflare_zone_id",
     "ak_id": "your_aliyun_access_key_id",
     "ak_secret": "your_aliyun_access_key_secret"
   },
-
-  // === general ===
   "general": {
-    // IPv6 获取方式（二选一，interface 优先）：
     "get_ip": {
-      "interface": "enp6s18",                       // 网卡名（ip addr 查看）
-      "urls": [                                     // HTTP API 回退方案
+      "interface": "enp6s18",
+      "urls": [
         "https://ipv6.icanhazip.com",
         "https://6.ipw.cn",
         "https://v6.ipv6-test.com/api/myip.php"
       ]
     },
-    "proxy": ""                                     // 全局代理 socks5:// 或 http://（仅 Cloudflare 生效）
+    "proxy": ""
   },
-
-  // === records ===
   "records": [
     {
-      // === 基础字段（所有服务商通用） ===
-      "provider": "cloudflare",                     // cloudflare | aliyun
-      "zone": "example.com",                        // 主域名
-      "record": "www",                              // 子域名，@ 表示根域名
-      "ttl": 180,                                   // 可选，Cloudflare 默认 180，阿里云默认 600
-      "proxied": false,                             // 可选，Cloudflare CDN 代理
-      "use_proxy": false,                           // 可选，是否使用 general.proxy
-
-      // === Cloudflare 专属 ===
+      "provider": "cloudflare",
+      "zone": "example.com",
+      "record": "www",
+      "ttl": 180,
+      "proxied": false,
+      "use_proxy": false,
       "cloudflare": {
-        "api_token": "$cf_token",                   // $ 引用 environment
-        "zone_id": "$cf_zone"                       // 可选，留空自动获取
+        "api_token": "$cf_token",
+        "zone_id": "$cf_zone"
       }
-
-      // === 阿里云专属（provider=aliyun 时使用） ===
-      // "aliyun": {
-      //   "access_key_id": "$ak_id",
-      //   "access_key_secret": "$ak_secret"
-      // }
+    },
+    {
+      "provider": "aliyun",
+      "zone": "example.cn",
+      "record": "www",
+      "ttl": 600,
+      "use_proxy": false,
+      "aliyun": {
+        "access_key_id": "$ak_id",
+        "access_key_secret": "$ak_secret"
+      }
     }
   ]
 }

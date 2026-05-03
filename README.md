@@ -49,7 +49,7 @@ cp config.example.json config.json
 
 ## 配置
 
-配置文件为 JSONC 格式（支持注释），结构分为三部分：`environment`、`general`、`records`。
+配置文件为 JSON 格式。以下示例使用 JSONC 语法（带注释）讲解字段，实际使用时请复制 `config.example.json` 并填入自己的值。
 
 ```jsonc
 {

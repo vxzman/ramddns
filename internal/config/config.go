@@ -20,7 +20,6 @@ type IPSource struct {
 type GeneralConfig struct {
 	GetIP     IPSource `json:"get_ip"`
 	WorkDir   string   `json:"work_dir,omitempty"`
-	LogOutput string   `json:"log_output,omitempty"`
 	Proxy     string   `json:"proxy,omitempty"`
 }
 

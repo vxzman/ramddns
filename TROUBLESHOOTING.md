@@ -50,20 +50,7 @@ jq . /path/to/config.json
 
 ### 问题：`Failed to initialize logging`
 
-**可能原因：**
-- 日志文件目录不存在
-- 日志文件权限不足
-
-**解决方案：**
-
-```bash
-# 创建工作目录
-mkdir -p /var/log/goddns
-chmod 755 /var/log/goddns
-
-# 或修改配置使用 shell 输出
-"log_output": "shell"
-```
+日志默认输出到标准输出，由 systemd 或 cron 管理。如遇到此错误，通常是系统环境问题，请检查程序是否有权限写入指定路径。
 
 ---
 
@@ -346,23 +333,13 @@ OnUnitActiveSec=10min  # 增加间隔
 
 **解决方案：**
 
-修改日志级别（需要代码方式设置）：
+通过 systemd 或 cron 将输出重定向到文件，或调整日志级别过滤（需要代码方式设置）：
 
 ```go
-import "goddns/internal/log"
+import "aiolos/internal/log"
 
 // 设置为只输出 WARNING 及以上级别
 log.SetLevel(log.WarningLevel)
-```
-
-或重定向日志到文件：
-
-```json
-{
-    "general": {
-        "log_output": "/var/log/goddns/goddns.log"
-    }
-}
 ```
 
 ### 问题：需要调试信息

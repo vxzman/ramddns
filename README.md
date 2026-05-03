@@ -350,7 +350,6 @@ sudo grep CRON /var/log/syslog
         "https://v6.ipv6-test.com/api/myip.php"
       ]
     },
-    "log_output": "shell",
     "proxy": ""
   },
   "records": [
@@ -397,7 +396,6 @@ sudo grep CRON /var/log/syslog
 |------|------|------|------|
 | `get_ip.interface` | `string` | 条件 | 网卡名称（与 `urls` 二选一） |
 | `get_ip.urls` | `[]string` | 条件 | IP 获取 API URLs（与 `interface` 二选一） |
-| `log_output` | `string` | 否 | 日志输出路径，`shell` 表示标准输出 |
 | `proxy` | `string` | 否 | 全局代理 URL（`socks5://` 或 `http://`） |
 
 #### records 字段（每条记录）
@@ -539,15 +537,7 @@ aiolos run -c config.json -d /etc/aiolos -t 600
 
 ### 调试模式
 
-在配置文件中设置日志级别：
-
-```json
-{
-  "general": {
-    "log_output": "shell"
-  }
-}
-```
+程序默认输出 DEBUG 级别日志到标准输出，systemd 或 cron 会将其重定向到对应日志。
 
 > 💡 **提示**：DEBUG 级别日志会在运行时自动输出详细调试信息。
 
@@ -633,26 +623,6 @@ aiolos run -c config.json -d /etc/aiolos -t 600
 | `ERROR` | 错误信息 |
 | `FATAL` | 致命错误（程序退出） |
 | `SUCCESS` | 成功信息 |
-
-#### 日志输出配置
-
-```json
-{
-  "general": {
-    "log_output": "shell"
-  }
-}
-```
-
-输出到文件：
-
-```json
-{
-  "general": {
-    "log_output": "/var/log/aiolos.log"
-  }
-}
-```
 
 #### 敏感信息脱敏
 
@@ -760,7 +730,7 @@ aiolos run -c config.json -d /etc/aiolos -t 600
 
 ### 日志级别调整
 
-在配置文件中设置 `log_output` 为 `shell` 即可看到详细日志。DEBUG 级别会自动输出完整请求信息。
+程序默认输出 DEBUG 级别日志。DEBUG 级别会自动输出完整请求信息。
 
 ### 查看 systemd 日志
 

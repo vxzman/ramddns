@@ -87,17 +87,7 @@ var runCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		logOutput := cfg.General.LogOutput
-		if logOutput != "" && !filepath.IsAbs(logOutput) {
-			logOutput = filepath.Join(baseDir, logOutput)
-			if dir := filepath.Dir(logOutput); dir != "" {
-				if err := os.MkdirAll(dir, 0755); err != nil {
-					fmt.Fprintf(os.Stderr, "Failed to create log directory: %v\n", err)
-					os.Exit(1)
-				}
-			}
-		}
-		if err := log.Init(logOutput); err != nil {
+		if err := log.Init(); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to initialize logging: %v\n", err)
 			os.Exit(1)
 		}

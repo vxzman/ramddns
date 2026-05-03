@@ -59,22 +59,12 @@ var colors = map[LogLevel]string{
 	FatalLevel:   "\033[31m",
 }
 
-func Init(logOutput string) error {
+func Init() error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if logOutput != "" && logOutput != "shell" {
-		file, err := os.OpenFile(logOutput, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-		if err != nil {
-			return fmt.Errorf("failed to open log file: %w", err)
-		}
-		log.SetOutput(file)
-		isTerminal = false
-	} else {
-		log.SetOutput(os.Stdout)
-		isTerminal = checkTerminal()
-	}
-
+	log.SetOutput(os.Stdout)
+	isTerminal = checkTerminal()
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	return nil
 }

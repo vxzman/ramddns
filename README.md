@@ -84,32 +84,21 @@ Aiolos 是一个**轻量级、多平台的动态 DNS (DDNS) 客户端**，专为
 
 ### 1. 构建
 
-#### 方法一：直接构建（当前平台）
-
-```bash
-go build -o aiolos ./cmd/aiolos
-```
-
-#### 方法二：使用构建脚本
-
 ```bash
 # 构建开发版本（当前平台）
 ./build.sh
 
-# 构建指定版本（当前平台）
+# 构建指定版本
 ./build.sh v2.0.0
 
-# 构建所有平台
-./build.sh v2.0.0 all
-
-# 仅构建 Linux 平台
-./build.sh v2.0.0 linux
+# 直接构建（等同方式）
+go build -o build/aiolos ./cmd/aiolos
 ```
 
 构建完成后验证：
 
 ```bash
-./aiolos version
+./build/aiolos version
 ```
 
 ### 2. 准备配置文件

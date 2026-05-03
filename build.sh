@@ -16,7 +16,7 @@ esac
 echo "Building aiolos ${VERSION} ..."
 echo "Platform: ${OS}/${ARCH}"
 
-LDFLAGS="-X aiolos/cmd/aiolos.version=${VERSION} -X aiolos/cmd/aiolos.commit=${COMMIT} -X aiolos/cmd/aiolos.buildDate=${BUILD_DATE}"
+LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}"
 
 go build -ldflags "$LDFLAGS" -o build/aiolos ./cmd/aiolos
 

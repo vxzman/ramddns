@@ -13,8 +13,8 @@ import (
 	"aiolos/internal/log"
 )
 
-// GetIPv6FromAPIs queries remote APIs for IPv6 addresses
-// 始终直连，不使用代理
+// GetIPv6FromAPIs queries remote HTTP APIs for IPv6 addresses.
+// Always uses direct connection (no proxy).
 func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 	if len(urls) == 0 {
 		return nil, errors.New("no IP API URL configured")
@@ -22,8 +22,6 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 
 	const retries = 2
 
-	// 使用 buffered channel 防止 goroutine 泄漏
-	// 当 ctx 取消时，发送操作不会阻塞
 	resultChan := make(chan struct {
 		info []IPv6Info
 		err  error
@@ -45,7 +43,6 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 				}
 			}()
 
-			// Always use direct connection (no proxy) for IP retrieval
 			client := &http.Client{
 				Timeout: 15 * time.Second,
 			}
@@ -100,7 +97,6 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 					continue
 				}
 
-				// Parse IP from response
 				responseBody := strings.TrimSpace(string(body))
 				if responseBody == "" {
 					if attempt == retries {
@@ -139,7 +135,6 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 					continue
 				}
 
-				// Verify it's an IPv6 address
 				if ip.To4() != nil {
 					if attempt == retries {
 						resultChan <- struct {
@@ -151,7 +146,6 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 					continue
 				}
 
-				// Check address type
 				if ip.IsLinkLocalUnicast() || ip.IsLoopback() || IsPrivateOrLocalIP(ip) {
 					if attempt == retries {
 						resultChan <- struct {
@@ -163,8 +157,6 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 					continue
 				}
 
-				// Successfully parsed IPv6 address
-				// API 返回的 IP 视为永久有效（静态 IP）
 				info := IPv6Info{
 					IP:           ip,
 					PreferredLft: time.Hour * 24 * 365 * 10,

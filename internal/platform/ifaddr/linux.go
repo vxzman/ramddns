@@ -9,7 +9,7 @@ import (
 	stdnetlink "github.com/vishvananda/netlink"
 )
 
-// GetAvailableIPv6 returns IPv6 addresses from an interface using netlink
+// GetAvailableIPv6 returns IPv6 addresses from an interface using netlink.
 func GetAvailableIPv6(interfaceName string) ([]IPv6Info, error) {
 	link, err := stdnetlink.LinkByName(interfaceName)
 	if err != nil {
@@ -23,11 +23,11 @@ func GetAvailableIPv6(interfaceName string) ([]IPv6Info, error) {
 
 	var infos []IPv6Info
 	for _, addr := range addrList {
-		// 跳过 IPv4 映射地址
+		// Skip IPv4-mapped addresses
 		if addr.IP.To4() != nil {
 			continue
 		}
-		// 跳过链路本地地址
+		// Skip link-local addresses
 		if addr.IP.IsLinkLocalUnicast() {
 			continue
 		}

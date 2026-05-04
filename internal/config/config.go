@@ -1,11 +1,13 @@
 package config
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"aiolos/internal/log"
 )
@@ -178,7 +180,7 @@ func WriteConfig(path string, config *Config) error {
 	return os.WriteFile(path, data, 0600)
 }
 
-// GetCacheFilePath returns the path for storing last IP
+// GetCacheFilePath returns the path for storing last IP and history
 func GetCacheFilePath(configFile string, workDir string) string {
 	if workDir != "" {
 		if err := os.MkdirAll(workDir, 0755); err != nil {
@@ -190,18 +192,104 @@ func GetCacheFilePath(configFile string, workDir string) string {
 	return filepath.Join(filepath.Dir(configFile), "cache.lastip")
 }
 
-// ReadLastIP reads the last IP from cache file
-func ReadLastIP(path string) string {
-	ip, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(ip))
+// IPHistoryEntry represents a single IP change record
+type IPHistoryEntry struct {
+	Timestamp time.Time
+	IP        string
 }
 
-// WriteLastIP writes the IP to cache file
+// CacheFileData holds parsed cache file contents
+type CacheFileData struct {
+	LastIP   string
+	History  []IPHistoryEntry
+}
+
+// ParseCacheFile reads and parses the cache file.
+// Format (one entry per line):
+//   <ISO8601_timestamp> <ip>
+//   <ISO8601_timestamp> <ip>
+func ParseCacheFile(path string) CacheFileData {
+	data := CacheFileData{History: make([]IPHistoryEntry, 0)}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return data
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(string(content)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Parse entry: "YYYY-MM-DDTHH:MM:SSZ ip"
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) == 2 {
+			ts, err := time.Parse(time.RFC3339, strings.TrimSpace(parts[0]))
+			if err == nil {
+				ip := strings.TrimSpace(parts[1])
+				if ip != "" {
+					data.History = append(data.History, IPHistoryEntry{
+						Timestamp: ts,
+						IP:        ip,
+					})
+				}
+			}
+		}
+	}
+
+	if len(data.History) > 0 {
+		data.LastIP = data.History[len(data.History)-1].IP
+	}
+
+	return data
+}
+
+// WriteCacheFile writes the cache data to file.
+func WriteCacheFile(path string, data CacheFileData) error {
+	var sb strings.Builder
+
+	for _, entry := range data.History {
+		sb.WriteString(fmt.Sprintf("%s %s\n", entry.Timestamp.Format(time.RFC3339), entry.IP))
+	}
+
+	return os.WriteFile(path, []byte(sb.String()), 0600)
+}
+
+// AppendIPHistory records an IP change and writes the updated cache file.
+// Returns the previous last IP for comparison.
+func AppendIPHistory(path string, newIP string) (string, error) {
+	data := ParseCacheFile(path)
+	oldIP := data.LastIP
+
+	data.LastIP = newIP
+	data.History = append(data.History, IPHistoryEntry{
+		Timestamp: time.Now().UTC(),
+		IP:        newIP,
+	})
+
+	if err := WriteCacheFile(path, data); err != nil {
+		return oldIP, err
+	}
+
+	return oldIP, nil
+}
+
+// ReadLastIP reads the last IP from cache file (deprecated, use ParseCacheFile)
+func ReadLastIP(path string) string {
+	return ParseCacheFile(path).LastIP
+}
+
+// WriteLastIP writes the IP to cache file (deprecated, use WriteCacheFile)
 func WriteLastIP(path string, ip string) error {
-	return os.WriteFile(path, []byte(ip), 0600)
+	data := ParseCacheFile(path)
+	data.LastIP = ip
+	data.History = append(data.History, IPHistoryEntry{
+		Timestamp: time.Now().UTC(),
+		IP:        ip,
+	})
+	return WriteCacheFile(path, data)
 }
 
 // UpdateZoneIDCache saves Cloudflare Zone IDs to a local cache file

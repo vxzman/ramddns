@@ -45,7 +45,7 @@ var runCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		configPath, _ := cmd.Flags().GetString("config")
 		dirPath, _ := cmd.Flags().GetString("dir")
-		ignoreCache, _ := cmd.Flags().GetBool("ignore-cache")
+		ignoreCache, _ := cmd.Flags().GetBool("ignore")
 		timeout, _ := cmd.Flags().GetInt("timeout")
 
 		if configPath == "" {
@@ -103,17 +103,21 @@ var runCmd = &cobra.Command{
 		log.Info("Current IPv6 address: %s", currentIP)
 
 		cacheFilePath := config.GetCacheFilePath(absConfigFile, dirPath)
-		lastIP := config.ReadLastIP(cacheFilePath)
+		cacheData := config.ParseCacheFile(cacheFilePath)
+		lastIP := cacheData.LastIP
 
 		if !ignoreCache {
 			if lastIP != "" && lastIP == currentIP {
-				log.Info("IP has not changed since last run: %s", currentIP)
+				log.Info("IP has not changed since last run: %s — skipping DDNS update", currentIP)
+				return
 			} else if lastIP != "" {
 				log.Info("IP changed from %s to %s", lastIP, currentIP)
 			}
+		} else {
+			log.Info("Ignoring cache (--ignore), forcing DDNS update")
 		}
 
-		updateRecords(ctx, cfg, currentIP, cacheFilePath, lastIP)
+		updateRecords(ctx, cfg, currentIP, cacheFilePath, lastIP, ignoreCache)
 	},
 }
 
@@ -143,7 +147,7 @@ func getCurrentIP(cfg *config.Config) (string, error) {
 }
 
 // updateRecords updates all DNS records in parallel
-func updateRecords(ctx context.Context, cfg *config.Config, currentIP string, cacheFilePath string, lastIP string) {
+func updateRecords(ctx context.Context, cfg *config.Config, currentIP string, cacheFilePath string, lastIP string, ignoreCache bool) {
 	var wg sync.WaitGroup
 	results := make([]updateResult, len(cfg.Records))
 	var mu sync.Mutex
@@ -174,7 +178,8 @@ func updateRecords(ctx context.Context, cfg *config.Config, currentIP string, ca
 
 	log.Info("Update completed: %d succeeded, %d failed", successCount, failCount)
 
-	if anySuccess && lastIP != currentIP {
+	// Only update cache if not in --ignore mode
+	if !ignoreCache && anySuccess && lastIP != currentIP {
 		updateCache(cacheFilePath, currentIP)
 	}
 
@@ -303,7 +308,7 @@ var versionCmd = &cobra.Command{
 func Execute() {
 	runCmd.Flags().StringP("config", "c", "", "配置文件路径 (JSON 格式)")
 	runCmd.Flags().StringP("dir", "d", "", "工作目录（用于存放缓存和相对日志路径）")
-	runCmd.Flags().BoolP("ignore-cache", "i", false, "忽略缓存 IP，强制更新")
+	runCmd.Flags().BoolP("ignore", "i", false, "忽略缓存，强制更新且不写入缓存")
 	runCmd.Flags().IntP("timeout", "t", 300, "超时时间（秒），默认 300 秒")
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(versionCmd)

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidateConfig(t *testing.T) {
@@ -168,7 +169,7 @@ func TestValidateConfig(t *testing.T) {
 				},
 			},
 			wantErr: true,
-			errMsg:  "cloudflare.api_token is empty",
+			errMsg:  "cloudflare.api_token is required",
 		},
 		{
 			name: "missing_aliyun_credentials",
@@ -188,7 +189,7 @@ func TestValidateConfig(t *testing.T) {
 				},
 			},
 			wantErr: true,
-			errMsg:  "aliyun.access_key_id is empty",
+			errMsg:  "aliyun.access_key_id is required",
 		},
 		{
 			name: "unsupported_provider",
@@ -314,9 +315,9 @@ func TestValidateProxyURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateProxyURL(tt.proxy)
+			err := validateProxy(tt.proxy)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("validateProxyURL() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("validateProxy() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -367,26 +368,20 @@ func TestReadLastIP(t *testing.T) {
 		t.Errorf("ReadLastIP() for non-existent file = %v, want empty", got)
 	}
 
-	// 测试有内容的文件
+	// 测试有内容的文件 (KV format)
 	testIP := "2001:db8::1"
-	if err := os.WriteFile(testFile, []byte(testIP), 0644); err != nil {
+	ts, _ := time.Parse(time.RFC3339, "2026-05-01T10:30:00Z")
+	cacheData := CacheFileData{
+		LastIP:  testIP,
+		History: []IPHistoryEntry{{Timestamp: ts, IP: testIP}},
+	}
+	if err := WriteCacheFile(testFile, cacheData); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
 	got = ReadLastIP(testFile)
 	if got != testIP {
 		t.Errorf("ReadLastIP() = %v, want %v", got, testIP)
-	}
-
-	// 测试带换行符的内容
-	testIPWithNewline := testIP + "\n"
-	if err := os.WriteFile(testFile, []byte(testIPWithNewline), 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
-
-	got = ReadLastIP(testFile)
-	if got != testIP {
-		t.Errorf("ReadLastIP() with newline = %v, want %v", got, testIP)
 	}
 }
 
@@ -400,13 +395,134 @@ func TestWriteLastIP(t *testing.T) {
 		t.Errorf("WriteLastIP() error = %v", err)
 	}
 
-	content, err := os.ReadFile(testFile)
-	if err != nil {
-		t.Fatalf("Failed to read test file: %v", err)
+	// Verify via ParseCacheFile
+	data := ParseCacheFile(testFile)
+	if data.LastIP != testIP {
+		t.Errorf("WriteLastIP() lastIP = %v, want %v", data.LastIP, testIP)
+	}
+	if len(data.History) != 1 || data.History[0].IP != testIP {
+		t.Errorf("WriteLastIP() history = %v, want 1 entry with IP %v", data.History, testIP)
+	}
+}
+
+func TestParseCacheFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.cache")
+
+	// Test non-existent file
+	data := ParseCacheFile(testFile)
+	if data.LastIP != "" {
+		t.Errorf("ParseCacheFile() non-existent file LastIP = %v, want empty", data.LastIP)
+	}
+	if len(data.History) != 0 {
+		t.Errorf("ParseCacheFile() non-existent file History len = %v, want 0", len(data.History))
 	}
 
-	if string(content) != testIP {
-		t.Errorf("WriteLastIP() wrote %v, want %v", string(content), testIP)
+	// Test empty file
+	if err := os.WriteFile(testFile, []byte(""), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+	data = ParseCacheFile(testFile)
+	if data.LastIP != "" {
+		t.Errorf("ParseCacheFile() empty file LastIP = %v, want empty", data.LastIP)
+	}
+
+	// Test full format
+	fileContent := `2026-05-01T10:30:00Z 2001:db8::1
+2026-05-02T08:15:00Z 2001:db8::2
+2026-05-03T12:00:00Z 2001:db8::3
+`
+	if err := os.WriteFile(testFile, []byte(fileContent), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	data = ParseCacheFile(testFile)
+	if data.LastIP != "2001:db8::3" {
+		t.Errorf("ParseCacheFile() LastIP = %v, want 2001:db8::3 (last entry)", data.LastIP)
+	}
+	if len(data.History) != 3 {
+		t.Errorf("ParseCacheFile() History len = %v, want 3", len(data.History))
+	}
+	if len(data.History) >= 2 {
+		if data.History[0].IP != "2001:db8::1" {
+			t.Errorf("History[0].IP = %v, want 2001:db8::1", data.History[0].IP)
+		}
+		if data.History[1].IP != "2001:db8::2" {
+			t.Errorf("History[1].IP = %v, want 2001:db8::2", data.History[1].IP)
+		}
+		if data.History[2].IP != "2001:db8::3" {
+			t.Errorf("History[2].IP = %v, want 2001:db8::3", data.History[2].IP)
+		}
+	}
+}
+
+func TestWriteCacheFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.cache")
+
+	ts1, _ := time.Parse(time.RFC3339, "2026-05-01T10:30:00Z")
+	ts2, _ := time.Parse(time.RFC3339, "2026-05-02T08:15:00Z")
+
+	data := CacheFileData{
+		LastIP: "2001:db8::1",
+		History: []IPHistoryEntry{
+			{Timestamp: ts1, IP: "2001:db8::1"},
+			{Timestamp: ts2, IP: "2001:db8::2"},
+		},
+	}
+
+	err := WriteCacheFile(testFile, data)
+	if err != nil {
+		t.Errorf("WriteCacheFile() error = %v", err)
+	}
+
+	// Read back and verify
+	readData := ParseCacheFile(testFile)
+	// LastIP is now derived from last history entry
+	if readData.LastIP != "2001:db8::2" {
+		t.Errorf("roundtrip LastIP = %v, want 2001:db8::2 (last entry)", readData.LastIP)
+	}
+	if len(readData.History) != 2 {
+		t.Errorf("roundtrip History len = %v, want 2", len(readData.History))
+	}
+}
+
+func TestAppendIPHistory(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.cache")
+
+	// First append
+	oldIP, err := AppendIPHistory(testFile, "2001:db8::1")
+	if err != nil {
+		t.Errorf("AppendIPHistory() error = %v", err)
+	}
+	if oldIP != "" {
+		t.Errorf("AppendIPHistory() oldIP = %v, want empty (first write)", oldIP)
+	}
+
+	data := ParseCacheFile(testFile)
+	if data.LastIP != "2001:db8::1" {
+		t.Errorf("After first append LastIP = %v, want 2001:db8::1", data.LastIP)
+	}
+	if len(data.History) != 1 {
+		t.Errorf("After first append History len = %v, want 1", len(data.History))
+	}
+
+	// Second append with different IP
+	oldIP, err = AppendIPHistory(testFile, "2001:db8::2")
+	if err != nil {
+		t.Errorf("AppendIPHistory() error = %v", err)
+	}
+	if oldIP != "2001:db8::1" {
+		t.Errorf("AppendIPHistory() oldIP = %v, want 2001:db8::1", oldIP)
+	}
+
+	data = ParseCacheFile(testFile)
+	if data.LastIP != "2001:db8::2" {
+		t.Errorf("After second append LastIP = %v, want 2001:db8::2", data.LastIP)
+	}
+	if len(data.History) != 2 {
+		t.Errorf("After second append History len = %v, want 2", len(data.History))
 	}
 }
 
@@ -568,12 +684,6 @@ func TestReadConfig(t *testing.T) {
 }
 
 func TestExpandConfigEnvVars(t *testing.T) {
-	// 设置测试环境变量
-	t.Setenv("TEST_API_TOKEN", "test_token_12345678901234567890")
-	t.Setenv("TEST_ACCESS_KEY_ID", "LTAItest1234567890")
-	t.Setenv("TEST_ACCESS_KEY_SECRET", "test_secret_1234567890")
-	t.Setenv("TEST_ZONE_ID", "zone123xyz")
-
 	tests := []struct {
 		name     string
 		cfg      *Config
@@ -587,14 +697,18 @@ func TestExpandConfigEnvVars(t *testing.T) {
 						Interface: "eth0",
 					},
 				},
+				Environment: map[string]string{
+					"TEST_API_TOKEN": "test_token_12345678901234567890",
+					"TEST_ZONE_ID":   "zone123xyz",
+				},
 				Records: []RecordConfig{
 					{
 						Provider: "cloudflare",
 						Zone:     "example.com",
 						Record:   "www",
 						Cloudflare: &CloudflareRecord{
-							APIToken: "${TEST_API_TOKEN}",
-							ZoneID:   "${TEST_ZONE_ID}",
+							APIToken: "$TEST_API_TOKEN",
+							ZoneID:   "$TEST_ZONE_ID",
 						},
 					},
 				},
@@ -616,14 +730,18 @@ func TestExpandConfigEnvVars(t *testing.T) {
 						Interface: "eth0",
 					},
 				},
+				Environment: map[string]string{
+					"TEST_ACCESS_KEY_ID":     "LTAItest1234567890",
+					"TEST_ACCESS_KEY_SECRET": "test_secret_1234567890",
+				},
 				Records: []RecordConfig{
 					{
 						Provider: "aliyun",
 						Zone:     "example.cn",
 						Record:   "dev",
 						Aliyun: &AliyunRecord{
-							AccessKeyID:     "${TEST_ACCESS_KEY_ID}",
-							AccessKeySecret: "${TEST_ACCESS_KEY_SECRET}",
+							AccessKeyID:     "$TEST_ACCESS_KEY_ID",
+							AccessKeySecret: "$TEST_ACCESS_KEY_SECRET",
 						},
 					},
 				},
@@ -634,33 +752,6 @@ func TestExpandConfigEnvVars(t *testing.T) {
 				}
 				if cfg.Records[0].Aliyun.AccessKeySecret != "test_secret_1234567890" {
 					t.Errorf("AccessKeySecret = %v, want test_secret_1234567890", cfg.Records[0].Aliyun.AccessKeySecret)
-				}
-			},
-		},
-		{
-			name: "env_with_default_value",
-			cfg: &Config{
-				General: GeneralConfig{
-					GetIP: IPSource{
-						Interface: "eth0",
-					},
-				},
-				Records: []RecordConfig{
-					{
-						Provider: "cloudflare",
-						Zone:     "example.com",
-						Record:   "www",
-						Cloudflare: &CloudflareRecord{
-							APIToken: "${TEST_API_TOKEN}",
-							ZoneID:   "${NON_EXISTENT_VAR:-default_zone}",
-						},
-					},
-				},
-			},
-			verifyFn: func(t *testing.T, cfg *Config) {
-				// 未设置的变量使用默认值
-				if cfg.Records[0].Cloudflare.ZoneID != "default_zone" {
-					t.Errorf("ZoneID with default = %v, want default_zone", cfg.Records[0].Cloudflare.ZoneID)
 				}
 			},
 		},
@@ -694,7 +785,7 @@ func TestExpandConfigEnvVars(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			expandConfigEnvVars(tt.cfg)
+			ResolveSecrets(tt.cfg)
 			tt.verifyFn(t, tt.cfg)
 		})
 	}

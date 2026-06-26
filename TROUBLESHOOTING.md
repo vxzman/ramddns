@@ -336,7 +336,7 @@ OnUnitActiveSec=10min  # 增加间隔
 通过 systemd 或 cron 将输出重定向到文件，或调整日志级别过滤（需要代码方式设置）：
 
 ```go
-import "aiolos/internal/log"
+import "ramddns/internal/log"
 
 // 设置为只输出 WARNING 及以上级别
 log.SetLevel(log.WarningLevel)

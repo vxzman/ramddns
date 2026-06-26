@@ -13,11 +13,11 @@ case "$ARCH" in
     aarch64) ARCH="arm64" ;;
 esac
 
-echo "Building aiolos ${VERSION} ..."
+echo "Building ramddns ${VERSION} ..."
 echo "Platform: ${OS}/${ARCH}"
 
 LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}"
 
-go build -ldflags "$LDFLAGS" -o build/aiolos ./cmd/aiolos
+go build -ldflags "$LDFLAGS" -o build/ramddns ./cmd/ramddns
 
-echo "Build successful: $(pwd)/build/aiolos"
+echo "Build successful: $(pwd)/build/ramddns"

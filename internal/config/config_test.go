@@ -18,20 +18,16 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "valid_cloudflare_config",
 			cfg: &Config{
-				General: GeneralConfig{
-					GetIP: IPSource{
-						Interface: "eth0",
-					},
+				IPSource: IPSource{
+					Interface: "eth0",
 				},
 				Records: []RecordConfig{
 					{
 						Provider: "cloudflare",
 						Zone:     "example.com",
-						Record:   "www",
+						Name:     "www",
 						TTL:      180,
-						Cloudflare: &CloudflareRecord{
-							APIToken: "${TEST_CLOUDFLARE_API_TOKEN}",
-						},
+						APIToken: "static_token",
 					},
 				},
 			},
@@ -40,21 +36,17 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "valid_aliyun_config",
 			cfg: &Config{
-				General: GeneralConfig{
-					GetIP: IPSource{
-						URLs: []string{"https://ipv6.icanhazip.com"},
-					},
+				IPSource: IPSource{
+					FallbackURLs: []string{"https://ipv6.icanhazip.com"},
 				},
 				Records: []RecordConfig{
 					{
-						Provider: "aliyun",
-						Zone:     "example.cn",
-						Record:   "dev",
-						TTL:      600,
-						Aliyun: &AliyunRecord{
-							AccessKeyID:     "${TEST_ALIYUN_ACCESS_KEY_ID}",
-							AccessKeySecret: "${TEST_ALIYUN_ACCESS_KEY_SECRET}",
-						},
+						Provider:        "aliyun",
+						Zone:            "example.cn",
+						Name:            "dev",
+						TTL:             600,
+						AccessKeyID:     "test_id",
+						AccessKeySecret: "test_secret",
 					},
 				},
 			},
@@ -63,10 +55,8 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "empty_records",
 			cfg: &Config{
-				General: GeneralConfig{
-					GetIP: IPSource{
-						Interface: "eth0",
-					},
+				IPSource: IPSource{
+					Interface: "eth0",
 				},
 				Records: []RecordConfig{},
 			},
@@ -76,33 +66,28 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "missing_ip_source",
 			cfg: &Config{
-				General: GeneralConfig{},
 				Records: []RecordConfig{
 					{
 						Provider: "cloudflare",
 						Zone:     "example.com",
-						Record:   "www",
-						Cloudflare: &CloudflareRecord{
-							APIToken: "${TEST_CLOUDFLARE_API_TOKEN}",
-						},
+						Name:     "www",
+						APIToken: "token",
 					},
 				},
 			},
 			wantErr: true,
-			errMsg:  "either 'get_ip.interface' or 'get_ip.urls' must be configured",
+			errMsg:  "either 'ip_source.interface' or 'ip_source.fallback_urls' must be configured",
 		},
 		{
 			name: "missing_provider",
 			cfg: &Config{
-				General: GeneralConfig{
-					GetIP: IPSource{
-						Interface: "eth0",
-					},
+				IPSource: IPSource{
+					Interface: "eth0",
 				},
 				Records: []RecordConfig{
 					{
-						Zone:   "example.com",
-						Record: "www",
+						Zone: "example.com",
+						Name: "www",
 					},
 				},
 			},
@@ -112,18 +97,14 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "missing_zone",
 			cfg: &Config{
-				General: GeneralConfig{
-					GetIP: IPSource{
-						Interface: "eth0",
-					},
+				IPSource: IPSource{
+					Interface: "eth0",
 				},
 				Records: []RecordConfig{
 					{
 						Provider: "cloudflare",
-						Record:   "www",
-						Cloudflare: &CloudflareRecord{
-							APIToken: "${TEST_CLOUDFLARE_API_TOKEN}",
-						},
+						Name:     "www",
+						APIToken: "token",
 					},
 				},
 			},
@@ -133,77 +114,65 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "missing_record_name",
 			cfg: &Config{
-				General: GeneralConfig{
-					GetIP: IPSource{
-						Interface: "eth0",
-					},
+				IPSource: IPSource{
+					Interface: "eth0",
 				},
 				Records: []RecordConfig{
 					{
 						Provider: "cloudflare",
 						Zone:     "example.com",
-						Cloudflare: &CloudflareRecord{
-							APIToken: "${TEST_CLOUDFLARE_API_TOKEN}",
-						},
+						APIToken: "token",
 					},
 				},
 			},
 			wantErr: true,
-			errMsg:  "record name is required",
+			errMsg:  "name is required",
 		},
 		{
 			name: "missing_cloudflare_token",
 			cfg: &Config{
-				General: GeneralConfig{
-					GetIP: IPSource{
-						Interface: "eth0",
-					},
+				IPSource: IPSource{
+					Interface: "eth0",
 				},
 				Records: []RecordConfig{
 					{
-						Provider:   "cloudflare",
-						Zone:       "example.com",
-						Record:     "www",
-						Cloudflare: &CloudflareRecord{},
+						Provider: "cloudflare",
+						Zone:     "example.com",
+						Name:     "www",
 					},
 				},
 			},
 			wantErr: true,
-			errMsg:  "cloudflare.api_token is required",
+			errMsg:  "api_token is required for Cloudflare",
 		},
 		{
 			name: "missing_aliyun_credentials",
 			cfg: &Config{
-				General: GeneralConfig{
-					GetIP: IPSource{
-						Interface: "eth0",
-					},
+				IPSource: IPSource{
+					Interface: "eth0",
 				},
 				Records: []RecordConfig{
 					{
 						Provider: "aliyun",
 						Zone:     "example.cn",
-						Record:   "www",
-						Aliyun:   &AliyunRecord{},
+						Name:     "www",
 					},
 				},
 			},
 			wantErr: true,
-			errMsg:  "aliyun.access_key_id is required",
+			errMsg:  "access_key_id is required for Aliyun",
 		},
 		{
 			name: "unsupported_provider",
 			cfg: &Config{
-				General: GeneralConfig{
-					GetIP: IPSource{
-						Interface: "eth0",
-					},
+				IPSource: IPSource{
+					Interface: "eth0",
 				},
 				Records: []RecordConfig{
 					{
 						Provider: "unknown",
 						Zone:     "example.com",
-						Record:   "www",
+						Name:     "www",
 					},
 				},
 			},
@@ -213,43 +182,35 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "invalid_proxy_url",
 			cfg: &Config{
-				General: GeneralConfig{
-					GetIP: IPSource{
-						Interface: "eth0",
-					},
-					Proxy: "invalid-proxy",
+				IPSource: IPSource{
+					Interface: "eth0",
 				},
+				Proxy: "invalid-proxy",
 				Records: []RecordConfig{
 					{
 						Provider: "cloudflare",
 						Zone:     "example.com",
-						Record:   "www",
-						Cloudflare: &CloudflareRecord{
-							APIToken: "${TEST_CLOUDFLARE_API_TOKEN}",
-						},
+						Name:     "www",
+						APIToken: "token",
 					},
 				},
 			},
 			wantErr: true,
-			errMsg:  "invalid global proxy",
+			errMsg:  "invalid proxy",
 		},
 		{
 			name: "use_proxy_without_global_proxy",
 			cfg: &Config{
-				General: GeneralConfig{
-					GetIP: IPSource{
-						Interface: "eth0",
-					},
+				IPSource: IPSource{
+					Interface: "eth0",
 				},
 				Records: []RecordConfig{
 					{
 						Provider: "cloudflare",
 						Zone:     "example.com",
-						Record:   "www",
+						Name:     "www",
 						UseProxy: true,
-						Cloudflare: &CloudflareRecord{
-							APIToken: "${TEST_CLOUDFLARE_API_TOKEN}",
-						},
+						APIToken: "token",
 					},
 				},
 			},
@@ -259,21 +220,17 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "valid_proxy_url",
 			cfg: &Config{
-				General: GeneralConfig{
-					GetIP: IPSource{
-						Interface: "eth0",
-					},
-					Proxy: "socks5://127.0.0.1:1080",
+				IPSource: IPSource{
+					Interface: "eth0",
 				},
+				Proxy: "socks5://127.0.0.1:1080",
 				Records: []RecordConfig{
 					{
 						Provider: "cloudflare",
 						Zone:     "example.com",
-						Record:   "www",
+						Name:     "www",
 						UseProxy: true,
-						Cloudflare: &CloudflareRecord{
-							APIToken: "${TEST_CLOUDFLARE_API_TOKEN}",
-						},
+						APIToken: "token",
 					},
 				},
 			},
@@ -332,13 +289,13 @@ func TestGetCacheFilePath(t *testing.T) {
 	}{
 		{
 			name:         "with_work_dir",
-			configFile:   "/etc/aiolos/config.json",
-			workDir:      "/var/lib/aiolos",
+			configFile:   "/etc/ramddns/config.json",
+			workDir:      "/var/lib/ramddns",
 			wantContains: "cache.lastip",
 		},
 		{
 			name:         "without_work_dir",
-			configFile:   "/etc/aiolos/config.json",
+			configFile:   "/etc/ramddns/config.json",
 			workDir:      "",
 			wantContains: "cache.lastip",
 		},
@@ -358,17 +315,14 @@ func TestGetCacheFilePath(t *testing.T) {
 }
 
 func TestReadLastIP(t *testing.T) {
-	// 创建临时文件
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test.lastip")
 
-	// 测试空文件
 	got := ReadLastIP(testFile)
 	if got != "" {
 		t.Errorf("ReadLastIP() for non-existent file = %v, want empty", got)
 	}
 
-	// 测试有内容的文件 (KV format)
 	testIP := "2001:db8::1"
 	ts, _ := time.Parse(time.RFC3339, "2026-05-01T10:30:00Z")
 	cacheData := CacheFileData{
@@ -395,7 +349,6 @@ func TestWriteLastIP(t *testing.T) {
 		t.Errorf("WriteLastIP() error = %v", err)
 	}
 
-	// Verify via ParseCacheFile
 	data := ParseCacheFile(testFile)
 	if data.LastIP != testIP {
 		t.Errorf("WriteLastIP() lastIP = %v, want %v", data.LastIP, testIP)
@@ -409,7 +362,6 @@ func TestParseCacheFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test.cache")
 
-	// Test non-existent file
 	data := ParseCacheFile(testFile)
 	if data.LastIP != "" {
 		t.Errorf("ParseCacheFile() non-existent file LastIP = %v, want empty", data.LastIP)
@@ -418,7 +370,6 @@ func TestParseCacheFile(t *testing.T) {
 		t.Errorf("ParseCacheFile() non-existent file History len = %v, want 0", len(data.History))
 	}
 
-	// Test empty file
 	if err := os.WriteFile(testFile, []byte(""), 0644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
@@ -427,7 +378,6 @@ func TestParseCacheFile(t *testing.T) {
 		t.Errorf("ParseCacheFile() empty file LastIP = %v, want empty", data.LastIP)
 	}
 
-	// Test full format
 	fileContent := `2026-05-01T10:30:00Z 2001:db8::1
 2026-05-02T08:15:00Z 2001:db8::2
 2026-05-03T12:00:00Z 2001:db8::3
@@ -476,9 +426,7 @@ func TestWriteCacheFile(t *testing.T) {
 		t.Errorf("WriteCacheFile() error = %v", err)
 	}
 
-	// Read back and verify
 	readData := ParseCacheFile(testFile)
-	// LastIP is now derived from last history entry
 	if readData.LastIP != "2001:db8::2" {
 		t.Errorf("roundtrip LastIP = %v, want 2001:db8::2 (last entry)", readData.LastIP)
 	}
@@ -491,7 +439,6 @@ func TestAppendIPHistory(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test.cache")
 
-	// First append
 	oldIP, err := AppendIPHistory(testFile, "2001:db8::1")
 	if err != nil {
 		t.Errorf("AppendIPHistory() error = %v", err)
@@ -508,7 +455,6 @@ func TestAppendIPHistory(t *testing.T) {
 		t.Errorf("After first append History len = %v, want 1", len(data.History))
 	}
 
-	// Second append with different IP
 	oldIP, err = AppendIPHistory(testFile, "2001:db8::2")
 	if err != nil {
 		t.Errorf("AppendIPHistory() error = %v", err)
@@ -528,9 +474,7 @@ func TestAppendIPHistory(t *testing.T) {
 
 func TestGetRecordProxy(t *testing.T) {
 	cfg := &Config{
-		General: GeneralConfig{
-			Proxy: "socks5://127.0.0.1:1080",
-		},
+		Proxy: "socks5://127.0.0.1:1080",
 	}
 
 	tests := []struct {
@@ -575,9 +519,7 @@ func TestGetRecordTTL(t *testing.T) {
 			record: &RecordConfig{
 				Provider: "cloudflare",
 				TTL:      300,
-				Cloudflare: &CloudflareRecord{
-					APIToken: "test",
-				},
+				APIToken: "test",
 			},
 			wantTTL: 300,
 		},
@@ -585,34 +527,28 @@ func TestGetRecordTTL(t *testing.T) {
 			name: "cloudflare_without_record_ttl",
 			record: &RecordConfig{
 				Provider: "cloudflare",
-				Cloudflare: &CloudflareRecord{
-					APIToken: "test",
-				},
+				APIToken: "test",
 			},
-			wantTTL: 180, // default for cloudflare
+			wantTTL: 180,
 		},
 		{
 			name: "aliyun_with_record_ttl",
 			record: &RecordConfig{
-				Provider: "aliyun",
-				TTL:      600,
-				Aliyun: &AliyunRecord{
-					AccessKeyID:     "test",
-					AccessKeySecret: "test",
-				},
+				Provider:        "aliyun",
+				TTL:             600,
+				AccessKeyID:     "test",
+				AccessKeySecret: "test",
 			},
 			wantTTL: 600,
 		},
 		{
 			name: "aliyun_without_record_ttl",
 			record: &RecordConfig{
-				Provider: "aliyun",
-				Aliyun: &AliyunRecord{
-					AccessKeyID:     "test",
-					AccessKeySecret: "test",
-				},
+				Provider:        "aliyun",
+				AccessKeyID:     "test",
+				AccessKeySecret: "test",
 			},
-			wantTTL: 600, // default for aliyun
+			wantTTL: 600,
 		},
 	}
 
@@ -629,24 +565,16 @@ func TestGetRecordTTL(t *testing.T) {
 func TestReadConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// 设置测试环境变量
-	t.Setenv("TEST_CLOUDFLARE_API_TOKEN", "test_token_12345678901234567890")
-
-	// 测试有效配置
 	validConfig := `{
-		"general": {
-			"get_ip": {
-				"interface": "eth0"
-			}
+		"ip_source": {
+			"interface": "eth0"
 		},
 		"records": [
 			{
 				"provider": "cloudflare",
 				"zone": "example.com",
-				"record": "www",
-				"cloudflare": {
-					"api_token": "${TEST_CLOUDFLARE_API_TOKEN}"
-				}
+				"name": "www",
+				"api_token": "test_token"
 			}
 		]
 	}`
@@ -664,7 +592,6 @@ func TestReadConfig(t *testing.T) {
 		t.Errorf("ReadConfig() for valid config returned empty absolute path")
 	}
 
-	// 测试无效 JSON
 	invalidJSON := `{ invalid json }`
 	invalidFile := filepath.Join(tmpDir, "invalid.json")
 	if err := os.WriteFile(invalidFile, []byte(invalidJSON), 0644); err != nil {
@@ -676,7 +603,6 @@ func TestReadConfig(t *testing.T) {
 		t.Errorf("ReadConfig() for invalid JSON should return nil")
 	}
 
-	// 测试不存在的文件
 	cfg, _ = ReadConfig(filepath.Join(tmpDir, "nonexistent.json"), true)
 	if cfg != nil {
 		t.Errorf("ReadConfig() for non-existent file should return nil")
@@ -692,12 +618,10 @@ func TestExpandConfigEnvVars(t *testing.T) {
 		{
 			name: "expand_cloudflare_env_vars",
 			cfg: &Config{
-				General: GeneralConfig{
-					GetIP: IPSource{
-						Interface: "eth0",
-					},
+				IPSource: IPSource{
+					Interface: "eth0",
 				},
-				Environment: map[string]string{
+				Env: map[string]string{
 					"TEST_API_TOKEN": "test_token_12345678901234567890",
 					"TEST_ZONE_ID":   "zone123xyz",
 				},
@@ -705,79 +629,68 @@ func TestExpandConfigEnvVars(t *testing.T) {
 					{
 						Provider: "cloudflare",
 						Zone:     "example.com",
-						Record:   "www",
-						Cloudflare: &CloudflareRecord{
-							APIToken: "$TEST_API_TOKEN",
-							ZoneID:   "$TEST_ZONE_ID",
-						},
+						Name:     "www",
+						APIToken: "$TEST_API_TOKEN",
+						ZoneID:   "$TEST_ZONE_ID",
 					},
 				},
 			},
 			verifyFn: func(t *testing.T, cfg *Config) {
-				if cfg.Records[0].Cloudflare.APIToken != "test_token_12345678901234567890" {
-					t.Errorf("APIToken = %v, want test_token_12345678901234567890", cfg.Records[0].Cloudflare.APIToken)
+				if cfg.Records[0].APIToken != "test_token_12345678901234567890" {
+					t.Errorf("APIToken = %v, want test_token_12345678901234567890", cfg.Records[0].APIToken)
 				}
-				if cfg.Records[0].Cloudflare.ZoneID != "zone123xyz" {
-					t.Errorf("ZoneID = %v, want zone123xyz", cfg.Records[0].Cloudflare.ZoneID)
+				if cfg.Records[0].ZoneID != "zone123xyz" {
+					t.Errorf("ZoneID = %v, want zone123xyz", cfg.Records[0].ZoneID)
 				}
 			},
 		},
 		{
 			name: "expand_aliyun_env_vars",
 			cfg: &Config{
-				General: GeneralConfig{
-					GetIP: IPSource{
-						Interface: "eth0",
-					},
+				IPSource: IPSource{
+					Interface: "eth0",
 				},
-				Environment: map[string]string{
+				Env: map[string]string{
 					"TEST_ACCESS_KEY_ID":     "LTAItest1234567890",
 					"TEST_ACCESS_KEY_SECRET": "test_secret_1234567890",
 				},
 				Records: []RecordConfig{
 					{
-						Provider: "aliyun",
-						Zone:     "example.cn",
-						Record:   "dev",
-						Aliyun: &AliyunRecord{
-							AccessKeyID:     "$TEST_ACCESS_KEY_ID",
-							AccessKeySecret: "$TEST_ACCESS_KEY_SECRET",
-						},
+						Provider:        "aliyun",
+						Zone:            "example.cn",
+						Name:            "dev",
+						AccessKeyID:     "$TEST_ACCESS_KEY_ID",
+						AccessKeySecret: "$TEST_ACCESS_KEY_SECRET",
 					},
 				},
 			},
 			verifyFn: func(t *testing.T, cfg *Config) {
-				if cfg.Records[0].Aliyun.AccessKeyID != "LTAItest1234567890" {
-					t.Errorf("AccessKeyID = %v, want LTAItest1234567890", cfg.Records[0].Aliyun.AccessKeyID)
+				if cfg.Records[0].AccessKeyID != "LTAItest1234567890" {
+					t.Errorf("AccessKeyID = %v, want LTAItest1234567890", cfg.Records[0].AccessKeyID)
 				}
-				if cfg.Records[0].Aliyun.AccessKeySecret != "test_secret_1234567890" {
-					t.Errorf("AccessKeySecret = %v, want test_secret_1234567890", cfg.Records[0].Aliyun.AccessKeySecret)
+				if cfg.Records[0].AccessKeySecret != "test_secret_1234567890" {
+					t.Errorf("AccessKeySecret = %v, want test_secret_1234567890", cfg.Records[0].AccessKeySecret)
 				}
 			},
 		},
 		{
 			name: "non_env_values_unchanged",
 			cfg: &Config{
-				General: GeneralConfig{
-					GetIP: IPSource{
-						Interface: "eth0",
-					},
+				IPSource: IPSource{
+					Interface: "eth0",
 				},
 				Records: []RecordConfig{
 					{
 						Provider: "cloudflare",
 						Zone:     "example.com",
-						Record:   "www",
-						Cloudflare: &CloudflareRecord{
-							APIToken: "static_token",
-							ZoneID:   "",
-						},
+						Name:     "www",
+						APIToken: "static_token",
 					},
 				},
 			},
 			verifyFn: func(t *testing.T, cfg *Config) {
-				if cfg.Records[0].Cloudflare.APIToken != "static_token" {
-					t.Errorf("Static APIToken = %v, want static_token", cfg.Records[0].Cloudflare.APIToken)
+				if cfg.Records[0].APIToken != "static_token" {
+					t.Errorf("Static APIToken = %v, want static_token", cfg.Records[0].APIToken)
 				}
 			},
 		},

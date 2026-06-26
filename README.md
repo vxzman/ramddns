@@ -1,22 +1,23 @@
-# Aiolos
+# Ramddns
 
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/go-1.22+-00ADD8?logo=go)](https://golang.org)
 
-> **Aiolos**（埃俄罗斯）是希腊神话中的风神，象征快速与灵动。
-> 本项目名称致敬风神，寓意**快速响应网络变化，灵动更新 DNS 记录**。
+轻量级 DDNS 客户端，专为 IPv6 环境设计。从本地网卡或远程 API 获取 IPv6 地址，自动更新 Cloudflare / 阿里云 DNS 的 AAAA 记录。
 
-Aiolos 是一个轻量级 DDNS 客户端，专为 IPv6 环境设计，支持 Cloudflare 和阿里云 DNS。零外部依赖，单一二进制文件。
+**单二进制，零 CGo 依赖（Linux / FreeBSD / OpenBSD）**。
 
-## 特性
+## 平台支持
 
-- **多平台**：Linux、macOS、FreeBSD、OpenBSD
-- **多服务商**：Cloudflare、阿里云 DNS（架构易扩展）
-- **IPv6 优先**：支持从网卡或 HTTP API 获取 IPv6 地址，自动过滤链路本地/ULA/环回地址
-- **并发更新**：多条 DNS 记录同时更新
-- **缓存机制**：IP 未变化时不触发 API 调用
-- **敏感信息管理**：`environment` 集中定义，通过 `$变量名` 引用，日志自动脱敏
-- **代理支持**：Cloudflare 支持 HTTP/SOCKS5 代理（仅 Cloudflare）
+| 平台 | 实现方式 | CGo |
+|------|----------|-----|
+| Linux | netlink (`vishvananda/netlink`) | 否 |
+| FreeBSD | netlink (`AF_NETLINK` + `RTM_GETADDR`) | 否 |
+| OpenBSD | ioctl (`SIOCGIFALIFETIME_IN6`) | 否 |
+| macOS | ioctl (CGo) | 是 |
+
+FreeBSD 14+ 使用与 `ifconfig` 相同的 netlink 路径获取 IPv6 地址及生命周期。
+OpenBSD 使用原生 `ioctl` 获取 SLAAC 地址的 `pltime` / `vltime`。
 
 ## 快速开始
 
@@ -27,10 +28,17 @@ Aiolos 是一个轻量级 DDNS 客户端，专为 IPv6 环境设计，支持 Clo
 ./build.sh v2.0.0   # 指定版本
 ```
 
+交叉编译：
+
+```bash
+GOOS=freebsd GOARCH=amd64 go build -o build/ramddns ./cmd/ramddns
+GOOS=openbsd GOARCH=amd64 go build -o build/ramddns ./cmd/ramddns
+```
+
 验证：
 
 ```bash
-./build/aiolos version
+./build/ramddns version
 ```
 
 ### 2. 配置
@@ -44,58 +52,63 @@ cp config.example.json config.json
 ### 3. 运行
 
 ```bash
-./build/aiolos run -c config.json -d /etc/aiolos
+./build/ramddns run -c config.json -d /etc/ramddns
 ```
 
 ## 配置
 
-配置文件为 JSON 格式。以下示例使用 JSONC 语法（带注释）讲解字段，实际使用时请复制 `config.example.json` 并填入自己的值。
+配置文件为 JSON 格式。以下示例使用 JSONC 语法讲解字段，实际使用时请复制 `config.example.json` 并填入自己的值。
 
 ```jsonc
 {
-  // ── environment ──────────────────────────────────────────
+  // ── env ──────────────────────────────────────────────────
   // 敏感信息集中存放，通过 $变量名 在 records 中引用。
   // 仅支持 $name 语法，不支持 ${name} 或系统环境变量。
-  "environment": {
+  "env": {
     "cf_token": "your_cloudflare_api_token",
     "cf_zone": "your_cloudflare_zone_id",
     "ak_id": "your_aliyun_access_key_id",
     "ak_secret": "your_aliyun_access_key_secret"
   },
 
-  // ── general ──────────────────────────────────────────────
-  "general": {
-    "get_ip": {
-      "interface": "enp6s18",                       // 网卡名（与 urls 二选一，interface 优先）
-      "urls": [                                     // HTTP API 回退方案
-        "https://ipv6.icanhazip.com",
-        "https://6.ipw.cn",
-        "https://v6.ipv6-test.com/api/myip.php"
-      ]
-    },
-    "proxy": ""                                     // 全局代理 socks5:// 或 http://（仅 Cloudflare 生效）
+  // ── ip_source ────────────────────────────────────────────
+  "ip_source": {
+    "interface": "enp6s18",                       // 网卡名（与 fallback_urls 二选一，interface 优先）
+    "fallback_urls": [                            // HTTP API 回退方案
+      "https://ipv6.icanhazip.com",
+      "https://6.ipw.cn",
+      "https://v6.ipv6-test.com/api/myip.php"
+    ]
   },
+  "proxy": "",                                    // 全局代理 socks5:// 或 http://（仅 Cloudflare 生效）
 
   // ── records ──────────────────────────────────────────────
   "records": [
     {
       // 基础字段（所有服务商通用）
-      "provider": "cloudflare",                     // cloudflare | aliyun
-      "zone": "example.com",                        // 主域名
-      "record": "www",                              // 子域名，@ 表示根域名
-      "ttl": 180,                                   // 可选，Cloudflare 默认 180，阿里云默认 600
-      "proxied": false,                             // 可选，Cloudflare CDN 代理
-      "use_proxy": false,                           // 可选，是否使用 general.proxy
+      "provider": "cloudflare",                   // cloudflare | aliyun
+      "zone": "example.com",                      // 主域名
+      "name": "www",                              // 子域名，@ 表示根域名
+      "type": "AAAA",                             // DNS 记录类型，默认 AAAA
+      "ttl": 180,                                 // 可选，Cloudflare 默认 180，阿里云默认 600
+      "proxied": false,                           // 可选，Cloudflare CDN 代理
+      "use_proxy": false,                         // 可选，是否使用全局 proxy
 
-      // 服务商专属字段（按 provider 选择其一）
-      "cloudflare": {
-        "api_token": "$cf_token",                   // 必需，$ 引用 environment
-        "zone_id": "$cf_zone"                       // 可选，留空自动获取
-      },
-      "aliyun": {
-        "access_key_id": "$ak_id",                  // 必需
-        "access_key_secret": "$ak_secret"           // 必需
-      }
+      // Cloudflare 专属字段
+      "api_token": "$cf_token",                   // 必需，$ 引用 env
+      "zone_id": "$cf_zone"                       // 可选，留空自动获取
+    },
+    {
+      "provider": "aliyun",
+      "zone": "example.cn",
+      "name": "www",
+      "type": "AAAA",
+      "ttl": 600,
+      "use_proxy": false,
+
+      // 阿里云专属字段
+      "access_key_id": "$ak_id",                  // 必需
+      "access_key_secret": "$ak_secret"           // 必需
     }
   ]
 }
@@ -104,7 +117,7 @@ cp config.example.json config.json
 ### 服务商对比
 
 | | Cloudflare | 阿里云 |
-|--|------------|--------|
+|--|-----------|--------|
 | **认证** | API Token | AccessKey ID + Secret |
 | **权限** | `Zone:DNS:Edit` | `AliyunDNSFullAccess` |
 | **代理** | ✅ HTTP/SOCKS5 | ❌ 不支持 |
@@ -113,7 +126,7 @@ cp config.example.json config.json
 ## 命令行
 
 ```
-aiolos <command> [options]
+ramddns <command> [options]
 ```
 
 | 命令 | 说明 |
@@ -130,37 +143,50 @@ aiolos <command> [options]
 | `--ignore-cache` | `-i` | false | 忽略缓存，强制更新 |
 | `--timeout` | `-t` | 300 | 超时时间（秒） |
 
+## 工作原理
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│ 获取 IPv6   │ ──▶ │ 筛选最佳地址  │ ──▶ │ 更新 DNS    │
+│ 网卡 / API  │     │ 全局单播+最长 │     │ Cloudflare  │
+│             │     │ 首选生命周期  │     │ 阿里云      │
+└─────────────┘     └──────────────┘     └─────────────┘
+                            │
+                    缓存 IP 不变化
+                    则跳过 API 调用
+```
+
 ## 部署
 
 ### systemd（推荐）
 
-`/etc/systemd/system/aiolos.service`：
+`/etc/systemd/system/ramddns.service`：
 
 ```ini
 [Unit]
-Description=Aiolos DDNS Client
+Description=Ramddns DDNS Client
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/aiolos run -c /etc/aiolos/config.json -d /etc/aiolos
+ExecStart=/usr/local/bin/ramddns run -c /etc/ramddns/config.json -d /etc/ramddns
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-`/etc/systemd/system/aiolos.timer`：
+`/etc/systemd/system/ramddns.timer`：
 
 ```ini
 [Unit]
-Description=Run Aiolos DDNS every 10 minutes
-Requires=aiolos.service
+Description=Run Ramddns DDNS every 10 minutes
+Requires=ramddns.service
 
 [Timer]
 OnBootSec=5min
 OnUnitActiveSec=10min
-Unit=aiolos.service
+Unit=ramddns.service
 
 [Install]
 WantedBy=timers.target
@@ -170,24 +196,24 @@ WantedBy=timers.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now aiolos.timer
+sudo systemctl enable --now ramddns.timer
 ```
 
 ### Crontab
 
 ```bash
-*/10 * * * * /usr/local/bin/aiolos run -c /etc/aiolos/config.json -d /etc/aiolos >> /var/log/aiolos.log 2>&1
+*/10 * * * * /usr/local/bin/ramddns run -c /etc/ramddns/config.json -d /etc/ramddns >> /var/log/ramddns.log 2>&1
 ```
 
 ## 故障排查
 
 | 错误 | 解决方案 |
 |------|----------|
-| `无法获取 IPv6 地址` | 检查网卡名称（`ip addr`），确保 IPv6 已启用，或改用 `urls` API 方式 |
-| `Invalid API Token` | 检查 Token 和 `Zone:DNS:Edit` 权限 |
-| `SignatureDoesNotMatch` | 检查 AccessKey，确保系统时间准确（NTP 同步） |
+| `无可用 IPv6 地址` | 检查网卡名称（`ip addr` 或 `ifconfig`），确保 IPv6 已启用；或改用 `urls` API 方式 |
+| `Invalid API Token` | 检查 Cloudflare Token 和 `Zone:DNS:Edit` 权限 |
+| `SignatureDoesNotMatch` | 检查阿里云 AccessKey，确保系统时间准确（NTP 同步） |
 
-日志默认输出到 stdout，systemd 用户可通过 `journalctl -u aiolos.service -f` 查看。
+日志默认输出到 stdout，systemd 用户可通过 `journalctl -u ramddns.service -f` 查看。
 
 更多故障排查见 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)。
 

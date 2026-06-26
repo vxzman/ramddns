@@ -27,32 +27,28 @@ type in6Addrlifetime struct {
 }
 
 // in6_ifreq layout: 16-byte name + max(28, sizeof(in6_addrlifetime)) union.
-// sizeof(struct in6_ifreq) is 48 on LP64 (tail-padded to 8-byte alignment),
-// and 44 on ILP32 (no tail padding needed).
 const (
-	ifrNameLen   = 16 // IFNAMSIZ
-	ifrUnionOff  = 16
-	ifrSizeLP64  = 48
-	ifrSizeILP32 = 44
+	ifrNameLen  = 16 // IFNAMSIZ
+	ifrUnionOff = 16
+	ifrSizePad  = 48 // with 8-byte tail alignment (standard LP64)
 )
 
 // nd6InfiniteLifetime is the u_int32 sentinel for "forever".
 const nd6InfiniteLifetime = 0xffffffff
 
-// siocGifAlifetimeIn6 computes the SIOCGIFALIFETIME_IN6 ioctl command at
-// runtime, because sizeof(struct in6_ifreq) varies between LP64 (48) and
-// ILP32 (44).  The macro is _IOWR('i', 81, sizeof(struct in6_ifreq)).
-func siocGifAlifetimeIn6() uintptr {
+// siocGifAlifetimeIn6 returns candidate SIOCGIFALIFETIME_IN6 values.
+// sizeof(struct in6_ifreq) may be 48 (with tail padding) or 44 (without).
+// Both sizes are tried since the exact value depends on the platform ABI.
+func siocGifAlifetimeIn6() []uintptr {
 	const (
 		iocInOut = 0xC0000000
 		group    = 'i'
 		num      = 81
 	)
-	size := uintptr(ifrSizeILP32)
-	if unsafe.Sizeof(uintptr(0)) == 8 {
-		size = ifrSizeLP64
+	mk := func(size uintptr) uintptr {
+		return iocInOut | ((size & 0x1fff) << 16) | (group << 8) | num
 	}
-	return iocInOut | ((size & 0x1fff) << 16) | (group << 8) | num
+	return []uintptr{mk(48), mk(44)}
 }
 
 // GetAvailableIPv6 returns IPv6 addresses and lifetimes from the named
@@ -76,11 +72,11 @@ func GetAvailableIPv6(ifaceName string) ([]IPv6Info, error) {
 	}
 	defer unix.Close(fd)
 
-	ioctlCmd := siocGifAlifetimeIn6()
+	ioctlCmds := siocGifAlifetimeIn6()
 	now := time.Now().Unix()
 	var infos []IPv6Info
 
-	log.Info("openbsd: found %d addrs on %s, querying lifetimes...", len(addrs), ifaceName)
+	log.Info("openbsd: found %d addrs on %s", len(addrs), ifaceName)
 
 	for i, addr := range addrs {
 		ipnet, ok := addr.(*net.IPNet)
@@ -90,67 +86,71 @@ func GetAvailableIPv6(ifaceName string) ([]IPv6Info, error) {
 		}
 		ip := ipnet.IP
 		if ip.To4() != nil {
-			log.Info("openbsd: addr[%d]=%s is IPv4, skipping", i, ip)
+			log.Info("openbsd: addr[%d]=%s IPv4, skip", i, ip)
 			continue
 		}
 		if ip.IsLinkLocalUnicast() {
-			log.Info("openbsd: addr[%d]=%s is link-local, skipping", i, ip)
+			log.Info("openbsd: addr[%d]=%s link-local, skip", i, ip)
 			continue
 		}
 
-		// Build in6_ifreq as a raw byte buffer (max size for both ABIs).
-		var ifr [ifrSizeLP64]byte
-		copy(ifr[:ifrNameLen], ifaceName)
+		log.Info("openbsd: addr[%d]=%s trying ioctls %x/%x...",
+			i, ip, ioctlCmds[0], ioctlCmds[1])
 
-		// Write sockaddr_in6 into the union at offset 16.
-		sin6 := (*unix.RawSockaddrInet6)(unsafe.Pointer(&ifr[ifrUnionOff]))
-		sin6.Len = unix.SizeofSockaddrInet6
-		sin6.Family = unix.AF_INET6
-		ip16 := ip.To16()
-		copy(sin6.Addr[:], ip16)
+		var found bool
+		var pltime, vltime uint32
 
-		log.Info("openbsd: addr[%d]=%s querying ioctl (cmd=0x%x, sockaddr at off=%d, name=%s)...",
-			i, ip, ioctlCmd, ifrUnionOff, ifaceName)
+		for _, cmd := range ioctlCmds {
+			var ifr [ifrSizePad]byte
+			copy(ifr[:ifrNameLen], ifaceName)
 
-		// Query lifetime via ioctl — the kernel overwrites the union
-		// with struct in6_addrlifetime.
-		_, _, errno := unix.Syscall(
-			unix.SYS_IOCTL,
-			uintptr(fd),
-			ioctlCmd,
-			uintptr(unsafe.Pointer(&ifr[0])),
-		)
-		if errno != 0 {
-			log.Info("openbsd: addr[%d]=%s ioctl failed: %v", i, ip, errno)
+			sin6 := (*unix.RawSockaddrInet6)(unsafe.Pointer(&ifr[ifrUnionOff]))
+			sin6.Len = unix.SizeofSockaddrInet6
+			sin6.Family = unix.AF_INET6
+			copy(sin6.Addr[:], ip.To16())
+
+			_, _, errno := unix.Syscall(
+				unix.SYS_IOCTL,
+				uintptr(fd),
+				cmd,
+				uintptr(unsafe.Pointer(&ifr[0])),
+			)
+			if errno != 0 {
+				log.Info("openbsd: addr[%d] ioctl 0x%x: %v", i, cmd, errno)
+				continue
+			}
+
+			lt := (*in6Addrlifetime)(unsafe.Pointer(&ifr[ifrUnionOff]))
+			pltime = nd6InfiniteLifetime
+			vltime = nd6InfiniteLifetime
+
+			// time_t value of 0 means "no lifetime info" (permanent address).
+			if lt.Preferred != 0 {
+				remaining := lt.Preferred - now
+				if remaining > 0 {
+					pltime = uint32(remaining)
+				} else {
+					pltime = 0
+				}
+			}
+			if lt.Expire != 0 {
+				remaining := lt.Expire - now
+				if remaining > 0 {
+					vltime = uint32(remaining)
+				} else {
+					vltime = 0
+				}
+			}
+			found = true
+			break
+		}
+
+		if !found {
 			continue
 		}
-		log.Info("openbsd: addr[%d]=%s ioctl succeeded", i, ip)
 
-		lt := (*in6Addrlifetime)(unsafe.Pointer(&ifr[ifrUnionOff]))
+		log.Info("openbsd: addr[%d]=%s pltime=%d vltime=%d", i, ip, pltime, vltime)
 
-		var pltime uint32 = nd6InfiniteLifetime
-		var vltime uint32 = nd6InfiniteLifetime
-
-		// time_t value of 0 means "no lifetime info" (permanent address).
-		if lt.Preferred != 0 {
-			remaining := lt.Preferred - now
-			if remaining > 0 {
-				pltime = uint32(remaining)
-			} else {
-				pltime = 0
-			}
-		}
-		if lt.Expire != 0 {
-			remaining := lt.Expire - now
-			if remaining > 0 {
-				vltime = uint32(remaining)
-			} else {
-				vltime = 0
-			}
-		}
-
-		// Map sentinel to a generous duration so the address is
-		// considered Preferred/Static by PopulateInfo.
 		if pltime == nd6InfiniteLifetime {
 			pltime = uint32((365 * 10 * 24 * time.Hour).Seconds())
 		}

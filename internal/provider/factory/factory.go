@@ -4,10 +4,10 @@ package factory
 import (
 	"fmt"
 
-	"aiolos/internal/config"
-	"aiolos/internal/provider"
-	"aiolos/internal/provider/aliyun"
-	"aiolos/internal/provider/cloudflare"
+	"ramddns/internal/config"
+	"ramddns/internal/provider"
+	"ramddns/internal/provider/aliyun"
+	"ramddns/internal/provider/cloudflare"
 )
 
 // ProviderRegistry maps provider names to factory functions
@@ -53,8 +53,8 @@ func IsSupported(providerName string) bool {
 
 // newCloudflareProvider creates a new Cloudflare provider
 func newCloudflareProvider(cfg *config.Config, record *config.RecordConfig) (provider.Provider, error) {
-	if record.Cloudflare == nil {
-		return nil, fmt.Errorf("cloudflare configuration is missing")
+	if record.APIToken == "" {
+		return nil, fmt.Errorf("cloudflare api_token is missing")
 	}
 
 	proxyURL := config.GetRecordProxy(cfg, record)
@@ -62,16 +62,14 @@ func newCloudflareProvider(cfg *config.Config, record *config.RecordConfig) (pro
 		Proxy: proxyURL,
 	}
 
-	return cloudflare.NewProvider(providerConfig, record.Cloudflare.APIToken), nil
+	return cloudflare.NewProvider(providerConfig, record.APIToken), nil
 }
 
 // newAliyunProvider creates a new Aliyun provider
 func newAliyunProvider(cfg *config.Config, record *config.RecordConfig) (provider.Provider, error) {
-	if record.Aliyun == nil {
-		return nil, fmt.Errorf("aliyun configuration is missing")
+	if record.AccessKeyID == "" || record.AccessKeySecret == "" {
+		return nil, fmt.Errorf("aliyun access_key_id or access_key_secret is missing")
 	}
 
-	// Aliyun doesn't support proxy, but we still create the provider
-	// The proxy will be logged as ignored if configured
-	return aliyun.NewProvider(record.Aliyun.AccessKeyID, record.Aliyun.AccessKeySecret), nil
+	return aliyun.NewProvider(record.AccessKeyID, record.AccessKeySecret), nil
 }

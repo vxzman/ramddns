@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"aiolos/internal/config"
-	"aiolos/internal/log"
-	"aiolos/internal/platform/ifaddr"
-	"aiolos/internal/provider/cloudflare"
-	"aiolos/internal/provider/factory"
+	"ramddns/internal/config"
+	"ramddns/internal/log"
+	"ramddns/internal/platform/ifaddr"
+	"ramddns/internal/provider/cloudflare"
+	"ramddns/internal/provider/factory"
 	"github.com/spf13/cobra"
 )
 
@@ -25,7 +25,7 @@ var (
 )
 
 func printVersion() {
-	fmt.Printf("aiolos %s\n", version)
+	fmt.Printf("ramddns %s\n", version)
 	if commit != "" {
 		fmt.Printf("commit: %s\n", commit)
 	}
@@ -35,8 +35,8 @@ func printVersion() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "aiolos",
-	Short: "强大的动态 DNS 客户端 - 支持多域名多服务商",
+	Use:   "ramddns",
+	Short: "轻量级 DDNS 客户端 - 支持多域名多服务商",
 }
 
 var runCmd = &cobra.Command{
@@ -92,7 +92,7 @@ var runCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		log.Info("aiolos starting with %d record(s)", len(cfg.Records))
+		log.Info("ramddns starting with %d record(s)", len(cfg.Records))
 
 		currentIP, err := getCurrentIP(cfg)
 		if err != nil {
@@ -126,18 +126,18 @@ func getCurrentIP(cfg *config.Config) (string, error) {
 	var infos []ifaddr.IPv6Info
 	var err error
 
-	if cfg.General.GetIP.Interface != "" {
-		infos, err = ifaddr.GetAvailableIPv6(cfg.General.GetIP.Interface)
+	if cfg.IPSource.Interface != "" {
+		infos, err = ifaddr.GetAvailableIPv6(cfg.IPSource.Interface)
 		if err != nil {
-			log.Info("Interface %s failed: %v", cfg.General.GetIP.Interface, err)
+			log.Info("Interface %s failed: %v", cfg.IPSource.Interface, err)
 			log.Info("Trying fallback API...")
-			infos, err = ifaddr.GetIPv6FromAPIs(cfg.General.GetIP.URLs, false)
+			infos, err = ifaddr.GetIPv6FromAPIs(cfg.IPSource.FallbackURLs, false)
 			if err != nil {
 				return "", err
 			}
 		}
 	} else {
-		infos, err = ifaddr.GetIPv6FromAPIs(cfg.General.GetIP.URLs, false)
+		infos, err = ifaddr.GetIPv6FromAPIs(cfg.IPSource.FallbackURLs, false)
 		if err != nil {
 			return "", err
 		}
@@ -196,7 +196,7 @@ type updateResult struct {
 
 // updateSingleRecord updates a single DNS record
 func updateSingleRecord(ctx context.Context, cfg *config.Config, record *config.RecordConfig, currentIP string, cacheFilePath string) updateResult {
-	result := updateResult{record: fmt.Sprintf("%s.%s", record.Record, record.Zone)}
+	result := updateResult{record: fmt.Sprintf("%s.%s", record.Name, record.Zone)}
 
 	select {
 	case <-ctx.Done():
@@ -225,7 +225,7 @@ func updateSingleRecord(ctx context.Context, cfg *config.Config, record *config.
 	ttl := config.GetRecordTTL(record)
 	extra := buildExtraConfig(record)
 
-	success, err := provider.UpsertRecord(ctx, record.Zone, record.Record, currentIP, ttl, extra)
+	success, err := provider.UpsertRecord(ctx, record.Zone, record.Name, currentIP, ttl, extra)
 	if err != nil {
 		log.Error("Failed to update %s: %v", result.record, err)
 		result.err = err
@@ -250,13 +250,13 @@ func setupCloudflareRecord(ctx context.Context, provider any, record *config.Rec
 	}
 
 	cacheZoneIDPath := cacheFilePath + ".zoneid.json"
-	zoneID := record.Cloudflare.ZoneID
+	zoneID := record.ZoneID
 
 	// Try cache first
 	if zoneID == "" {
 		if cached := config.ReadZoneIDCache(cacheZoneIDPath); cached != nil {
 			zoneID = cached[record.Zone]
-			record.Cloudflare.ZoneID = zoneID
+			record.ZoneID = zoneID
 		}
 	}
 
@@ -269,7 +269,7 @@ func setupCloudflareRecord(ctx context.Context, provider any, record *config.Rec
 			log.Error("Failed to fetch Zone ID: %v", err)
 			return fmt.Errorf("failed to get Zone ID: %w", err)
 		}
-		record.Cloudflare.ZoneID = zoneID
+		record.ZoneID = zoneID
 		log.Info("Zone ID fetched: %s", zoneID)
 
 		if err := config.UpdateZoneIDCache(cacheZoneIDPath, record.Zone, zoneID); err != nil {
@@ -284,8 +284,9 @@ func setupCloudflareRecord(ctx context.Context, provider any, record *config.Rec
 func buildExtraConfig(record *config.RecordConfig) map[string]interface{} {
 	extra := make(map[string]interface{})
 	if record.Provider == "cloudflare" {
-		extra["proxied"] = record.Cloudflare.Proxied
-		extra["zoneID"] = record.Cloudflare.ZoneID
+		extra["proxied"] = record.Proxied
+		extra["zoneID"] = record.ZoneID
+		extra["type"] = config.GetRecordType(record)
 	}
 	return extra
 }

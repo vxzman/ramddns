@@ -1,4 +1,4 @@
-//go:build freebsd || openbsd || darwin
+//go:build darwin
 
 package ifaddr
 

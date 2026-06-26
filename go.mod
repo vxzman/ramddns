@@ -1,4 +1,4 @@
-module aiolos
+module ramddns
 
 go 1.22
 

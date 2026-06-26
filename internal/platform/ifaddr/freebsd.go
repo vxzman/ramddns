@@ -184,13 +184,14 @@ func GetAvailableIPv6(ifaceName string) ([]IPv6Info, error) {
 
 			if a.Cacheinfo != nil {
 				ci := a.Cacheinfo
-				// 0 and ND6_INFINITE_LIFETIME both mean "forever".
-				// Other values are remaining seconds (cf. tutorial direct mode).
-				if ci.Prefered != 0 && ci.Prefered != nd6InfiniteLifetime {
-					pltime = ci.Prefered
+				// ND6_INFINITE_LIFETIME = forever (static/permanent address).
+				// 0 = expired/deprecated (0 remaining seconds).
+				// Other values = remaining seconds from now.
+				if ci.Prefered != nd6InfiniteLifetime {
+					pltime = ci.Prefered // 0 means deprecated
 				}
-				if ci.Valid != 0 && ci.Valid != nd6InfiniteLifetime {
-					vltime = ci.Valid
+				if ci.Valid != nd6InfiniteLifetime {
+					vltime = ci.Valid // 0 means expired
 				}
 			}
 

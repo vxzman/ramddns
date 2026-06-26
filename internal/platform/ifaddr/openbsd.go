@@ -9,6 +9,7 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/unix"
+	"ramddns/internal/log"
 )
 
 // in6_addrlifetime mirrors struct in6_addrlifetime from <netinet6/in6_var.h>.
@@ -79,17 +80,21 @@ func GetAvailableIPv6(ifaceName string) ([]IPv6Info, error) {
 	now := time.Now().Unix()
 	var infos []IPv6Info
 
-	for _, addr := range addrs {
+	log.Info("openbsd: found %d addrs on %s, querying lifetimes...", len(addrs), ifaceName)
+
+	for i, addr := range addrs {
 		ipnet, ok := addr.(*net.IPNet)
 		if !ok {
+			log.Info("openbsd: addr[%d] not IPNet, skipping", i)
 			continue
 		}
 		ip := ipnet.IP
 		if ip.To4() != nil {
+			log.Info("openbsd: addr[%d]=%s is IPv4, skipping", i, ip)
 			continue
 		}
-		// Skip link-local — lifetime queries are not meaningful for them.
 		if ip.IsLinkLocalUnicast() {
+			log.Info("openbsd: addr[%d]=%s is link-local, skipping", i, ip)
 			continue
 		}
 
@@ -101,7 +106,11 @@ func GetAvailableIPv6(ifaceName string) ([]IPv6Info, error) {
 		sin6 := (*unix.RawSockaddrInet6)(unsafe.Pointer(&ifr[ifrUnionOff]))
 		sin6.Len = unix.SizeofSockaddrInet6
 		sin6.Family = unix.AF_INET6
-		copy(sin6.Addr[:], ip.To16())
+		ip16 := ip.To16()
+		copy(sin6.Addr[:], ip16)
+
+		log.Info("openbsd: addr[%d]=%s querying ioctl (cmd=0x%x, sockaddr at off=%d, name=%s)...",
+			i, ip, ioctlCmd, ifrUnionOff, ifaceName)
 
 		// Query lifetime via ioctl — the kernel overwrites the union
 		// with struct in6_addrlifetime.
@@ -112,8 +121,10 @@ func GetAvailableIPv6(ifaceName string) ([]IPv6Info, error) {
 			uintptr(unsafe.Pointer(&ifr[0])),
 		)
 		if errno != 0 {
+			log.Info("openbsd: addr[%d]=%s ioctl failed: %v", i, ip, errno)
 			continue
 		}
+		log.Info("openbsd: addr[%d]=%s ioctl succeeded", i, ip)
 
 		lt := (*in6Addrlifetime)(unsafe.Pointer(&ifr[ifrUnionOff]))
 

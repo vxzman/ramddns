@@ -42,7 +42,14 @@ func fetchIPFromURL(url string) (string, error) {
 			time.Sleep(delay)
 		}
 
-		resp, err := client.Get(url)
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		req.Header.Set("User-Agent", "curl/8.0.0")
+
+		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = err
 			continue

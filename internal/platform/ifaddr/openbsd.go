@@ -9,16 +9,9 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/unix"
-	"ramddns/internal/log"
 )
 
 // in6_addrlifetime mirrors struct in6_addrlifetime from <netinet6/in6_var.h>.
-// Layout on OpenBSD:
-//
-//	time_t   ia6t_expire    (8 bytes on LP64, 4 on ILP32)
-//	time_t   ia6t_preferred (8 bytes on LP64, 4 on ILP32)
-//	u_int32_t ia6t_vltime   (4 bytes)
-//	u_int32_t ia6t_pltime   (4 bytes)
 type in6Addrlifetime struct {
 	Expire    int64
 	Preferred int64
@@ -26,8 +19,8 @@ type in6Addrlifetime struct {
 	Pltime    uint32
 }
 
-// in6_ifreq layout: 16-byte name + union { ..., icmp6_ifstat (272 bytes), ... }
-// sizeof(struct in6_ifreq) = 288 on OpenBSD (all architectures).
+// sizeof(struct in6_ifreq) = 288 on OpenBSD.
+// The union includes icmp6_ifstat (272 bytes), which dominates.
 const (
 	ifrNameLen  = 16  // IFNAMSIZ
 	ifrUnionOff = 16
@@ -38,21 +31,19 @@ const (
 const nd6InfiniteLifetime = 0xffffffff
 
 // siocGifAlifetimeIn6 returns the SIOCGIFALIFETIME_IN6 ioctl command.
-// _IOWR('i', 81, struct in6_ifreq) where sizeof(struct in6_ifreq) = 288.
+// _IOWR('i', 81, struct in6_ifreq) where sizeof = 288.
 func siocGifAlifetimeIn6() uintptr {
 	const (
 		iocInOut = 0xC0000000
 		group    = 'i'
 		num      = 81
-		size     = ifrSize
 	)
-	return iocInOut | ((size & 0x1fff) << 16) | (group << 8) | num
+	return iocInOut | ((ifrSize & 0x1fff) << 16) | (group << 8) | num
 }
 
 // GetAvailableIPv6 returns IPv6 addresses and lifetimes from the named
-// interface using getifaddrs (via net.Interface.Addrs) to enumerate
-// addresses and ioctl(SIOCGIFALIFETIME_IN6) for each to retrieve
-// preferred / valid lifetimes.
+// interface using net.Interface.Addrs to enumerate addresses and
+// ioctl(SIOCGIFALIFETIME_IN6) for lifetimes.
 func GetAvailableIPv6(ifaceName string) ([]IPv6Info, error) {
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {
@@ -74,21 +65,13 @@ func GetAvailableIPv6(ifaceName string) ([]IPv6Info, error) {
 	now := time.Now().Unix()
 	var infos []IPv6Info
 
-	log.Info("openbsd: found %d addrs on %s, ioctl=0x%x", len(addrs), ifaceName, ioctlCmd)
-
-	for i, addr := range addrs {
+	for _, addr := range addrs {
 		ipnet, ok := addr.(*net.IPNet)
 		if !ok {
-			log.Info("openbsd: addr[%d] not IPNet, skipping", i)
 			continue
 		}
 		ip := ipnet.IP
-		if ip.To4() != nil {
-			log.Info("openbsd: addr[%d]=%s IPv4, skip", i, ip)
-			continue
-		}
-		if ip.IsLinkLocalUnicast() {
-			log.Info("openbsd: addr[%d]=%s link-local, skip", i, ip)
+		if ip.To4() != nil || ip.IsLinkLocalUnicast() {
 			continue
 		}
 
@@ -107,7 +90,6 @@ func GetAvailableIPv6(ifaceName string) ([]IPv6Info, error) {
 			uintptr(unsafe.Pointer(&ifr[0])),
 		)
 		if errno != 0 {
-			log.Info("openbsd: addr[%d]=%s ioctl failed: %v", i, ip, errno)
 			continue
 		}
 
@@ -132,8 +114,6 @@ func GetAvailableIPv6(ifaceName string) ([]IPv6Info, error) {
 				vltime = 0
 			}
 		}
-
-		log.Info("openbsd: addr[%d]=%s pltime=%d vltime=%d", i, ip, pltime, vltime)
 
 		if pltime == nd6InfiniteLifetime {
 			pltime = uint32((365 * 10 * 24 * time.Hour).Seconds())

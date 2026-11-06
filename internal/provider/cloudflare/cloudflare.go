@@ -205,7 +205,10 @@ func (p *CloudflareProvider) GetZoneID(ctx context.Context, zoneName string) (st
 // UpsertRecord creates or updates a DNS record
 // zoneID should be passed in the extra map as "zoneID"
 func (p *CloudflareProvider) UpsertRecord(ctx context.Context, zoneName, recordName, ip string, ttl int, extra map[string]interface{}) (bool, error) {
-	fqdn := recordName + "." + zoneName
+	fqdn := zoneName
+	if recordName != "@" {
+		fqdn = recordName + "." + zoneName
+	}
 	recordType := "AAAA"
 
 	// Get zoneID from extra params

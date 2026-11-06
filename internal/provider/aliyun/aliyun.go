@@ -8,18 +8,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	xnet "golang.org/x/net/proxy"
 )
 
 // AliyunProvider implements Aliyun DNS-specific logic
 type AliyunProvider struct {
 	accessKeyID     string
 	accessKeySecret string
+	proxyURL        string
+	client          *http.Client
 }
 
 const (
@@ -31,10 +36,16 @@ const (
 
 // NewProvider constructor
 func NewProvider(accessKeyID, accessKeySecret string) *AliyunProvider {
-	return &AliyunProvider{
+	p := &AliyunProvider{
 		accessKeyID:     accessKeyID,
 		accessKeySecret: accessKeySecret,
 	}
+	client, err := p.createHTTPClient()
+	if err != nil {
+		client = &http.Client{Timeout: 15 * time.Second}
+	}
+	p.client = client
+	return p
 }
 
 // Name returns the provider name
@@ -42,14 +53,52 @@ func (p *AliyunProvider) Name() string {
 	return "aliyun"
 }
 
-// SetProxy is a no-op for Aliyun provider (does not support proxy)
+// SetProxy makes later API calls use the given proxy URL.
 func (p *AliyunProvider) SetProxy(proxyURL string) error {
+	p.proxyURL = proxyURL
+	client, err := p.createHTTPClient()
+	if err != nil {
+		return err
+	}
+	p.client = client
 	return nil
 }
 
-// GetProxy returns empty string (Aliyun does not support proxy)
+// GetProxy returns the current proxy URL.
 func (p *AliyunProvider) GetProxy() string {
-	return ""
+	return p.proxyURL
+}
+
+func (p *AliyunProvider) createHTTPClient() (*http.Client, error) {
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+	}
+	if p.proxyURL != "" {
+		proxyURL, err := url.Parse(p.proxyURL)
+		if err != nil || proxyURL.Scheme == "" || proxyURL.Host == "" {
+			return nil, fmt.Errorf("invalid proxy URL")
+		}
+		switch strings.ToLower(proxyURL.Scheme) {
+		case "http", "https":
+			transport.Proxy = http.ProxyURL(proxyURL)
+		case "socks5", "socks5h":
+			var auth *xnet.Auth
+			if proxyURL.User != nil {
+				pw, _ := proxyURL.User.Password()
+				auth = &xnet.Auth{User: proxyURL.User.Username(), Password: pw}
+			}
+			dialer, err := xnet.SOCKS5("tcp", proxyURL.Host, auth, xnet.Direct)
+			if err != nil {
+				return nil, fmt.Errorf("socks proxy: %w", err)
+			}
+			transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return dialer.Dial(network, addr)
+			}
+		default:
+			return nil, fmt.Errorf("unsupported proxy scheme %q", proxyURL.Scheme)
+		}
+	}
+	return &http.Client{Timeout: 15 * time.Second, Transport: transport}, nil
 }
 
 // sign creates the HMAC-SHA1 signature
@@ -87,7 +136,11 @@ func (p *AliyunProvider) signRequest(ctx context.Context, params map[string]stri
 			return nil, err
 		}
 
-		resp, err := http.DefaultClient.Do(req)
+		client := p.client
+		if client == nil {
+			client = http.DefaultClient
+		}
+		resp, err := client.Do(req)
 		if err != nil {
 			if attempt == defaultRetries {
 				return nil, fmt.Errorf("API request failed after %d retries: %w", defaultRetries, err)

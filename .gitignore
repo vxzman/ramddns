@@ -10,8 +10,6 @@ cache.lastip
 *.swp
 *.swo
 *.txt
-aiolos
-goddns
 build/
 .qwen/
-.github/
+.claude/

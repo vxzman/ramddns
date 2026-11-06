@@ -33,7 +33,7 @@ func validateIPSource(ipSource *IPSource) error {
 	hasInterface := ipSource.Interface != ""
 	hasURLs := len(ipSource.FallbackURLs) > 0
 	if !hasInterface && !hasURLs {
-		return fmt.Errorf("either 'ip_source.interface' or 'ip_source.fallback_urls' must be configured")
+		return fmt.Errorf("either 'interface' or 'fallback_urls' must be configured")
 	}
 	return nil
 }
@@ -72,15 +72,10 @@ func validateRecord(record *RecordConfig, index int, globalProxy string) error {
 		return fmt.Errorf("record[%d]: name is required", index)
 	}
 
-	// Validate proxy setting
 	if record.UseProxy && globalProxy == "" {
 		return fmt.Errorf("record[%d]: use_proxy is true but no global proxy configured", index)
 	}
-	if record.UseProxy && record.Provider != "cloudflare" {
-		return fmt.Errorf("record[%d]: use_proxy only supported for Cloudflare", index)
-	}
 
-	// Validate provider-specific fields
 	switch record.Provider {
 	case "cloudflare":
 		return validateCloudflareRecord(record, index)
@@ -104,26 +99,6 @@ func validateAliyunRecord(record *RecordConfig, index int) error {
 	}
 	if record.AccessKeySecret == "" {
 		return fmt.Errorf("record[%d]: access_key_secret is required for Aliyun", index)
-	}
-	return nil
-}
-
-// validateConfigExpanded validates configuration after secret resolution.
-func validateConfigExpanded(cfg *Config) error {
-	for i, record := range cfg.Records {
-		switch record.Provider {
-		case "cloudflare":
-			if record.APIToken == "" {
-				return fmt.Errorf("record[%d]: api_token is not set or empty", i)
-			}
-		case "aliyun":
-			if record.AccessKeyID == "" {
-				return fmt.Errorf("record[%d]: access_key_id is not set or empty", i)
-			}
-			if record.AccessKeySecret == "" {
-				return fmt.Errorf("record[%d]: access_key_secret is not set or empty", i)
-			}
-		}
 	}
 	return nil
 }

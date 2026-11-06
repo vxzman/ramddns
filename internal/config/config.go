@@ -2,54 +2,84 @@ package config
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"ramddns/internal/log"
 )
 
-// IPSource specifies how to obtain the current IP address.
+// IPSource specifies how to obtain the current IPv6 address.
 type IPSource struct {
-	Interface    string   `json:"interface,omitempty"`
-	FallbackURLs []string `json:"fallback_urls,omitempty"`
+	Interface    string
+	FallbackURLs []string
 }
 
-// RecordConfig is a single DNS record configuration.
-// Provider-specific fields (api_token, zone_id, access_key_id,
-// access_key_secret) are flat at the record level — the provider
-// ignores the ones it doesn't need.
+// RecordConfig is one DNS record after the config file has been flattened.
+// Name is the RR label; "@" is the zone apex. Type is always AAAA.
 type RecordConfig struct {
-	Provider string `json:"provider"`
-	Zone     string `json:"zone"`
-	Name     string `json:"name"` // subdomain, "@" for root
-	Type     string `json:"type,omitempty"`
-	TTL      int    `json:"ttl,omitempty"`
-	Proxied  bool   `json:"proxied,omitempty"`  // Cloudflare CDN proxy
-	UseProxy bool   `json:"use_proxy,omitempty"` // use global proxy for this record
+	Provider string
+	Zone     string
+	Name     string
+	TTL      int
+	Proxied  bool
+	UseProxy bool
 
-	// Cloudflare
-	APIToken string `json:"api_token,omitempty"`
-	ZoneID   string `json:"zone_id,omitempty"`
+	APIToken string
+	ZoneID   string
 
-	// Aliyun
-	AccessKeyID     string `json:"access_key_id,omitempty"`
-	AccessKeySecret string `json:"access_key_secret,omitempty"`
+	AccessKeyID     string
+	AccessKeySecret string
 }
 
-// Config is the root configuration structure.
+// Config is the runtime configuration.
 type Config struct {
-	Env      map[string]string `json:"env,omitempty"`
-	IPSource IPSource          `json:"ip_source"`
-	Proxy    string            `json:"proxy,omitempty"`
-	Records  []RecordConfig    `json:"records"`
+	IPSource IPSource
+	Proxy    string
+	Records  []RecordConfig
+}
+
+type fileConfig struct {
+	Interface    string          `json:"interface"`
+	FallbackURLs []string        `json:"fallback_urls"`
+	Proxy        string          `json:"proxy"`
+	Cloudflare   *fileCloudflare `json:"cloudflare"`
+	Aliyun       *fileAliyun     `json:"aliyun"`
+}
+
+type fileCloudflare struct {
+	Token   string         `json:"token"`
+	Records []fileCFRecord `json:"records"`
+}
+
+type fileCFRecord struct {
+	Name     string `json:"name"`
+	ZoneID   string `json:"zone_id"`
+	TTL      int    `json:"ttl"`
+	Proxied  bool   `json:"proxied"`
+	UseProxy bool   `json:"use_proxy"`
+}
+
+type fileAliyun struct {
+	AccessKeyID     string          `json:"access_key_id"`
+	AccessKeySecret string          `json:"access_key_secret"`
+	Records         []fileAliRecord `json:"records"`
+}
+
+type fileAliRecord struct {
+	Name     string `json:"name"`
+	TTL      int    `json:"ttl"`
+	UseProxy bool   `json:"use_proxy"`
 }
 
 // ReadConfig reads and validates config from a JSON file.
+// quiet is accepted for call-site compatibility and is unused.
 func ReadConfig(path string, quiet bool) (*Config, string) {
+	_ = quiet
+
 	configFile, err := filepath.Abs(path)
 	if err != nil {
 		log.Error("Failed to resolve config path: %v", err)
@@ -62,109 +92,160 @@ func ReadConfig(path string, quiet bool) (*Config, string) {
 		return nil, ""
 	}
 
-	var config Config
-	if err := json.Unmarshal(data, &config); err != nil {
-		log.Error("配置文件 JSON 格式错误：%v", err)
-		return nil, ""
-	}
-
-	if err := validateConfig(&config); err != nil {
+	cfg, err := parseConfig(data)
+	if err != nil {
 		log.Error("Invalid config: %v", err)
 		return nil, ""
 	}
-
-	return &config, configFile
+	return cfg, configFile
 }
 
-// resolveValue resolves $name from cfg.Env.
-// Supports $name syntax only (e.g., $cf_token), not ${name}.
-func resolveValue(s string, cfg *Config) string {
-	if !strings.HasPrefix(s, "$") || strings.HasPrefix(s, "${") {
-		return s
+func parseConfig(data []byte) (*Config, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+
+	var file fileConfig
+	if err := dec.Decode(&file); err != nil {
+		return nil, fmt.Errorf("配置文件 JSON 格式错误：%w", err)
 	}
-	name := s[1:]
-	if cfg.Env == nil {
-		return ""
+	if dec.More() {
+		return nil, fmt.Errorf("配置文件 JSON 格式错误：extra data after JSON value")
 	}
-	return cfg.Env[name]
+
+	cfg := &Config{
+		Proxy: strings.TrimSpace(file.Proxy),
+	}
+	cfg.IPSource.Interface = strings.TrimSpace(file.Interface)
+	for _, rawURL := range file.FallbackURLs {
+		url := strings.TrimSpace(rawURL)
+		if url == "" {
+			return nil, fmt.Errorf("fallback_urls entries must be non-empty strings")
+		}
+		cfg.IPSource.FallbackURLs = append(cfg.IPSource.FallbackURLs, url)
+	}
+
+	if file.Cloudflare != nil {
+		if err := appendCloudflare(cfg, file.Cloudflare); err != nil {
+			return nil, err
+		}
+	}
+	if file.Aliyun != nil {
+		if err := appendAliyun(cfg, file.Aliyun); err != nil {
+			return nil, err
+		}
+	}
+	if err := validateConfig(cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
-// ResolveSecrets resolves $name references in record fields against cfg.Env.
-func ResolveSecrets(cfg *Config) error {
-	resolve := func(val string) (string, error) {
-		if val == "" {
-			return val, nil
-		}
-		if strings.HasPrefix(val, "$") && !strings.HasPrefix(val, "${") {
-			name := val[1:]
-			if cfg.Env == nil {
-				return "", fmt.Errorf("no env section in config to resolve %s", name)
-			}
-			envVal, ok := cfg.Env[name]
-			if !ok || envVal == "" {
-				return "", fmt.Errorf("env variable %s is not set", name)
-			}
-			return envVal, nil
-		}
-		return val, nil
+func appendCloudflare(cfg *Config, cf *fileCloudflare) error {
+	token := strings.TrimSpace(cf.Token)
+	if token == "" {
+		return fmt.Errorf("cloudflare.token is required")
 	}
-
-	// Resolve proxy
-	if cfg.Proxy != "" {
-		r, err := resolve(cfg.Proxy)
+	if len(cf.Records) == 0 {
+		return fmt.Errorf("cloudflare.records must contain at least one record")
+	}
+	for i, rec := range cf.Records {
+		where := fmt.Sprintf("cloudflare.records[%d]", i)
+		rr, zone, err := splitFQDN(rec.Name)
 		if err != nil {
-			return err
+			return fmt.Errorf("%s: %w", where, err)
 		}
-		cfg.Proxy = r
+		if rec.TTL < 0 {
+			return fmt.Errorf("%s: ttl must not be negative", where)
+		}
+		cfg.Records = append(cfg.Records, RecordConfig{
+			Provider: "cloudflare",
+			Zone:     zone,
+			Name:     rr,
+			TTL:      rec.TTL,
+			Proxied:  rec.Proxied,
+			UseProxy: rec.UseProxy,
+			APIToken: token,
+			ZoneID:   strings.TrimSpace(rec.ZoneID),
+		})
 	}
-
-	// Resolve record secrets
-	for i := range cfg.Records {
-		rec := &cfg.Records[i]
-
-		if rec.APIToken != "" {
-			r, err := resolve(rec.APIToken)
-			if err != nil {
-				return err
-			}
-			rec.APIToken = r
-		}
-		if rec.ZoneID != "" {
-			r, err := resolve(rec.ZoneID)
-			if err != nil {
-				return err
-			}
-			rec.ZoneID = r
-		}
-		if rec.AccessKeyID != "" {
-			r, err := resolve(rec.AccessKeyID)
-			if err != nil {
-				return err
-			}
-			rec.AccessKeyID = r
-		}
-		if rec.AccessKeySecret != "" {
-			r, err := resolve(rec.AccessKeySecret)
-			if err != nil {
-				return err
-			}
-			rec.AccessKeySecret = r
-		}
-	}
-
 	return nil
 }
 
-// WriteConfig writes config to the given path.
-func WriteConfig(path string, config *Config) error {
-	data, err := json.MarshalIndent(config, "", "    ")
-	if err != nil {
-		return err
+func appendAliyun(cfg *Config, ali *fileAliyun) error {
+	keyID := strings.TrimSpace(ali.AccessKeyID)
+	keySecret := strings.TrimSpace(ali.AccessKeySecret)
+	if keyID == "" {
+		return fmt.Errorf("aliyun.access_key_id is required")
 	}
-	return os.WriteFile(path, data, 0600)
+	if keySecret == "" {
+		return fmt.Errorf("aliyun.access_key_secret is required")
+	}
+	if len(ali.Records) == 0 {
+		return fmt.Errorf("aliyun.records must contain at least one record")
+	}
+	for i, rec := range ali.Records {
+		where := fmt.Sprintf("aliyun.records[%d]", i)
+		rr, zone, err := splitFQDN(rec.Name)
+		if err != nil {
+			return fmt.Errorf("%s: %w", where, err)
+		}
+		if rec.TTL < 0 {
+			return fmt.Errorf("%s: ttl must not be negative", where)
+		}
+		cfg.Records = append(cfg.Records, RecordConfig{
+			Provider:        "aliyun",
+			Zone:            zone,
+			Name:            rr,
+			TTL:             rec.TTL,
+			UseProxy:        rec.UseProxy,
+			AccessKeyID:     keyID,
+			AccessKeySecret: keySecret,
+		})
+	}
+	return nil
 }
 
-// GetCacheFilePath returns the path for storing last IP and history.
+// splitFQDN turns a DNS name into an RR label and a zone.
+// Two labels are the zone apex. Three or more labels use the leftmost label
+// as the RR. A multi-label public suffix such as example.com.cn cannot be
+// distinguished from a host under that suffix.
+func splitFQDN(raw string) (string, string, error) {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	if s == "" {
+		return "", "", fmt.Errorf("name is empty")
+	}
+	if strings.ContainsAny(s, " \t") {
+		return "", "", fmt.Errorf("name must not contain whitespace")
+	}
+	s = strings.TrimRight(s, ".")
+	if s == "" {
+		return "", "", fmt.Errorf("name is empty")
+	}
+
+	labels := strings.Split(s, ".")
+	if len(labels) < 2 {
+		return "", "", fmt.Errorf("name must contain at least two labels, for example example.com")
+	}
+	for _, label := range labels {
+		if label == "" {
+			return "", "", fmt.Errorf("name has an empty label")
+		}
+	}
+	if len(labels) == 2 {
+		return "@", s, nil
+	}
+	return labels[0], strings.Join(labels[1:], "."), nil
+}
+
+// RecordFQDN is the name shown to the user. Apex records are the zone itself.
+func RecordFQDN(record *RecordConfig) string {
+	if record.Name == "@" {
+		return record.Zone
+	}
+	return record.Name + "." + record.Zone
+}
+
+// GetCacheFilePath returns the path for storing the last IP.
 func GetCacheFilePath(configFile string, workDir string) string {
 	if workDir != "" {
 		if err := os.MkdirAll(workDir, 0755); err != nil {
@@ -195,32 +276,16 @@ func GetRecordTTL(record *RecordConfig) int {
 	return 600
 }
 
-// GetRecordType returns the record type, defaulting to "AAAA".
-func GetRecordType(record *RecordConfig) string {
-	if record.Type != "" {
-		return record.Type
-	}
-	return "AAAA"
-}
-
-// --- Cache file helpers (unchanged logic) ---
-
-// IPHistoryEntry represents a single IP change record.
-type IPHistoryEntry struct {
-	Timestamp time.Time
-	IP        string
-}
-
-// CacheFileData holds parsed cache file contents.
+// CacheFileData holds the last IP read from the cache file.
 type CacheFileData struct {
-	LastIP  string
-	History []IPHistoryEntry
+	LastIP string
 }
 
-// ParseCacheFile reads and parses the cache file.
-// Format (one entry per line): <ISO8601_timestamp> <ip>
+// ParseCacheFile reads the cache file. The last non-empty line wins.
+// A line with a space is an old "RFC3339 ip" history entry; the IP is the second field.
+// A line without a space is the IP itself.
 func ParseCacheFile(path string) CacheFileData {
-	data := CacheFileData{History: make([]IPHistoryEntry, 0)}
+	var data CacheFileData
 
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -233,77 +298,28 @@ func ParseCacheFile(path string) CacheFileData {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-
-		parts := strings.SplitN(line, " ", 2)
-		if len(parts) == 2 {
-			ts, err := time.Parse(time.RFC3339, strings.TrimSpace(parts[0]))
-			if err == nil {
-				ip := strings.TrimSpace(parts[1])
-				if ip != "" {
-					data.History = append(data.History, IPHistoryEntry{
-						Timestamp: ts,
-						IP:        ip,
-					})
-				}
-			}
+		ip := line
+		if space := strings.IndexByte(line, ' '); space >= 0 {
+			ip = strings.TrimSpace(line[space+1:])
+		}
+		if ip != "" {
+			data.LastIP = ip
 		}
 	}
-
-	if len(data.History) > 0 {
-		data.LastIP = data.History[len(data.History)-1].IP
-	}
-
 	return data
 }
 
-// WriteCacheFile writes the cache data to file.
-func WriteCacheFile(path string, data CacheFileData) error {
-	var sb strings.Builder
-
-	for _, entry := range data.History {
-		sb.WriteString(fmt.Sprintf("%s %s\n", entry.Timestamp.Format(time.RFC3339), entry.IP))
-	}
-
-	return os.WriteFile(path, []byte(sb.String()), 0600)
-}
-
-// AppendIPHistory records an IP change and writes the updated cache file.
-func AppendIPHistory(path string, newIP string) (string, error) {
-	data := ParseCacheFile(path)
-	oldIP := data.LastIP
-
-	data.LastIP = newIP
-	data.History = append(data.History, IPHistoryEntry{
-		Timestamp: time.Now().UTC(),
-		IP:        newIP,
-	})
-
-	if err := WriteCacheFile(path, data); err != nil {
-		return oldIP, err
-	}
-
-	return oldIP, nil
-}
-
-// ReadLastIP reads the last IP from cache file (deprecated, use ParseCacheFile).
+// ReadLastIP reads the last IP from the cache file.
 func ReadLastIP(path string) string {
 	return ParseCacheFile(path).LastIP
 }
 
-// WriteLastIP writes the IP to cache file (deprecated, use WriteCacheFile).
+// WriteLastIP overwrites the cache with a single IP line.
 func WriteLastIP(path string, ip string) error {
-	data := ParseCacheFile(path)
-	data.LastIP = ip
-	data.History = append(data.History, IPHistoryEntry{
-		Timestamp: time.Now().UTC(),
-		IP:        ip,
-	})
-	return WriteCacheFile(path, data)
+	return os.WriteFile(path, []byte(ip+"\n"), 0600)
 }
 
-// --- Zone ID cache ---
-
-// UpdateZoneIDCache saves Cloudflare Zone IDs to a local cache file.
+// UpdateZoneIDCache saves a Cloudflare Zone ID to a local cache file.
 func UpdateZoneIDCache(path string, zone string, zoneID string) error {
 	zoneIDs := make(map[string]string)
 	data, err := os.ReadFile(path)

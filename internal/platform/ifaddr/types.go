@@ -5,6 +5,10 @@ import (
 	"time"
 )
 
+// InfiniteLifetime is a large duration that acts as "forever" for static
+// addresses and API-obtained addresses. 100 years — safe within int64 nanosecond range.
+const InfiniteLifetime = time.Hour * 24 * 365 * 100
+
 // IPv6Info contains information about an IPv6 address.
 // This is the unified structure used across all platforms.
 type IPv6Info struct {

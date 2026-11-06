@@ -71,5 +71,12 @@ func newAliyunProvider(cfg *config.Config, record *config.RecordConfig) (provide
 		return nil, fmt.Errorf("aliyun access_key_id or access_key_secret is missing")
 	}
 
-	return aliyun.NewProvider(record.AccessKeyID, record.AccessKeySecret), nil
+	p := aliyun.NewProvider(record.AccessKeyID, record.AccessKeySecret)
+	proxyURL := config.GetRecordProxy(cfg, record)
+	if proxyURL != "" {
+		if err := p.SetProxy(proxyURL); err != nil {
+			return nil, err
+		}
+	}
+	return p, nil
 }

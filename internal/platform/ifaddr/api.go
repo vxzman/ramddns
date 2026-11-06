@@ -22,11 +22,6 @@ const (
 
 	// apiTotalTimeout is the maximum time to wait for all APIs combined.
 	apiTotalTimeout = 15 * time.Second
-
-	// infiniteLifetime is a large duration that acts as "forever" for
-	// API-obtained addresses (no real lifetime info available).
-	// 100 years — safe within int64 nanosecond range.
-	infiniteLifetime = time.Hour * 24 * 365 * 100
 )
 
 // fetchIPFromURL queries a single HTTP API and returns a normalized IPv6
@@ -168,8 +163,8 @@ func GetIPv6FromAPIs(urls []string, quiet bool) ([]IPv6Info, error) {
 
 				info := IPv6Info{
 					IP:           net.ParseIP(result.ip),
-					PreferredLft: infiniteLifetime,
-					ValidLft:     infiniteLifetime,
+					PreferredLft: InfiniteLifetime,
+					ValidLft:     InfiniteLifetime,
 				}
 				PopulateInfo(&info)
 				return []IPv6Info{info}, nil

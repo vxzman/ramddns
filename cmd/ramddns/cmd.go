@@ -10,12 +10,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/cobra"
 	"ramddns/internal/config"
 	"ramddns/internal/log"
 	"ramddns/internal/platform/ifaddr"
 	"ramddns/internal/provider/cloudflare"
 	"ramddns/internal/provider/factory"
-	"github.com/spf13/cobra"
 )
 
 var (
@@ -80,11 +80,6 @@ var runCmd = &cobra.Command{
 		baseDir := dirPath
 		if baseDir == "" {
 			baseDir = filepath.Dir(absConfigFile)
-		}
-
-		if err := config.ResolveSecrets(cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to resolve secrets: %v\n", err)
-			os.Exit(1)
 		}
 
 		if err := log.Init(); err != nil {
@@ -196,7 +191,7 @@ type updateResult struct {
 
 // updateSingleRecord updates a single DNS record
 func updateSingleRecord(ctx context.Context, cfg *config.Config, record *config.RecordConfig, currentIP string, cacheFilePath string) updateResult {
-	result := updateResult{record: fmt.Sprintf("%s.%s", record.Name, record.Zone)}
+	result := updateResult{record: config.RecordFQDN(record)}
 
 	select {
 	case <-ctx.Done():
@@ -249,7 +244,7 @@ func setupCloudflareRecord(ctx context.Context, provider any, record *config.Rec
 		return fmt.Errorf("failed to cast provider to CloudflareProvider")
 	}
 
-	cacheZoneIDPath := cacheFilePath + ".zoneid.json"
+	cacheZoneIDPath := filepath.Join(filepath.Dir(cacheFilePath), "cache.zoneid.json")
 	zoneID := record.ZoneID
 
 	// Try cache first
@@ -286,7 +281,6 @@ func buildExtraConfig(record *config.RecordConfig) map[string]interface{} {
 	if record.Provider == "cloudflare" {
 		extra["proxied"] = record.Proxied
 		extra["zoneID"] = record.ZoneID
-		extra["type"] = config.GetRecordType(record)
 	}
 	return extra
 }

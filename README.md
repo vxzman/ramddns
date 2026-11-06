@@ -1,170 +1,116 @@
-# Ramddns
+# ramddns
 
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/go-1.22+-00ADD8?logo=go)](https://golang.org)
 
-轻量级 DDNS 客户端，专为 IPv6 环境设计。从本地网卡或远程 API 获取 IPv6 地址，自动更新 Cloudflare / 阿里云 DNS 的 AAAA 记录。
+用 Go 写的 IPv6 DDNS 客户端。从网卡或 HTTP 接口取出当前 IPv6，更新 Cloudflare 和阿里云的 AAAA 记录。配置和 Gecko-ddns 相同。
 
-**单二进制，零 CGo 依赖（Linux / FreeBSD / OpenBSD）**。
+只支持 Linux 和 FreeBSD。两个平台的网卡读取都不使用 CGo。Linux 用 `vishvananda/netlink`，FreeBSD 14+ 用与 `ifconfig` 相同的 netlink 路径。
 
-## 平台支持
-
-| 平台 | 实现方式 | CGo |
-|------|----------|-----|
-| Linux | netlink (`vishvananda/netlink`) | 否 |
-| FreeBSD | netlink (`AF_NETLINK` + `RTM_GETADDR`) | 否 |
-| OpenBSD | ioctl (`SIOCGIFALIFETIME_IN6`) | 否 |
-| macOS | ioctl (CGo) | 是 |
-
-FreeBSD 14+ 使用与 `ifconfig` 相同的 netlink 路径获取 IPv6 地址及生命周期。
-OpenBSD 使用原生 `ioctl` 获取 SLAAC 地址的 `pltime` / `vltime`。
-
-## 快速开始
-
-### 1. 构建
+## 构建
 
 ```bash
-./build.sh          # 开发版本
-./build.sh v2.0.0   # 指定版本
-```
-
-交叉编译：
-
-```bash
-GOOS=freebsd GOARCH=amd64 go build -o build/ramddns ./cmd/ramddns
-GOOS=openbsd GOARCH=amd64 go build -o build/ramddns ./cmd/ramddns
-```
-
-验证：
-
-```bash
+./build.sh
 ./build/ramddns version
 ```
 
-### 2. 配置
+交叉编译 FreeBSD：
+
+```bash
+GOOS=freebsd GOARCH=amd64 go build -o build/ramddns ./cmd/ramddns
+```
+
+## 配置
 
 ```bash
 cp config.example.json config.json
 ```
 
-完整配置说明见下方 [配置](#配置) 一节。
+不用的服务商整段删掉。凭证每个服务商只写一次。记录类型固定是 AAAA，不出现在配置里。
 
-### 3. 运行
-
-```bash
-./build/ramddns run -c config.json -d /etc/ramddns
-```
-
-## 配置
-
-配置文件为 JSON 格式。以下示例使用 JSONC 语法讲解字段，实际使用时请复制 `config.example.json` 并填入自己的值。
-
-```jsonc
+```json
 {
-  // ── env ──────────────────────────────────────────────────
-  // 敏感信息集中存放，通过 $变量名 在 records 中引用。
-  // 仅支持 $name 语法，不支持 ${name} 或系统环境变量。
-  "env": {
-    "cf_token": "your_cloudflare_api_token",
-    "cf_zone": "your_cloudflare_zone_id",
-    "ak_id": "your_aliyun_access_key_id",
-    "ak_secret": "your_aliyun_access_key_secret"
-  },
-
-  // ── ip_source ────────────────────────────────────────────
-  "ip_source": {
-    "interface": "enp6s18",                       // 网卡名（与 fallback_urls 二选一，interface 优先）
-    "fallback_urls": [                            // HTTP API 回退方案
-      "https://ipv6.icanhazip.com",
-      "https://6.ipw.cn",
-      "https://v6.ipv6-test.com/api/myip.php"
+  "interface": "vtnet0",
+  "fallback_urls": [
+    "https://ipv6.icanhazip.com",
+    "https://6.ipw.cn"
+  ],
+  "proxy": "",
+  "cloudflare": {
+    "token": "Cloudflare API Token",
+    "records": [
+      {
+        "name": "www.example.com",
+        "zone_id": "",
+        "ttl": 180,
+        "proxied": false,
+        "use_proxy": false
+      },
+      {
+        "name": "example.com",
+        "zone_id": "",
+        "ttl": 180,
+        "proxied": false,
+        "use_proxy": false
+      }
     ]
   },
-  "proxy": "",                                    // 全局代理 socks5:// 或 http://（仅 Cloudflare 生效）
-
-  // ── records ──────────────────────────────────────────────
-  "records": [
-    {
-      // 基础字段（所有服务商通用）
-      "provider": "cloudflare",                   // cloudflare | aliyun
-      "zone": "example.com",                      // 主域名
-      "name": "www",                              // 子域名，@ 表示根域名
-      "type": "AAAA",                             // DNS 记录类型，默认 AAAA
-      "ttl": 180,                                 // 可选，Cloudflare 默认 180，阿里云默认 600
-      "proxied": false,                           // 可选，Cloudflare CDN 代理
-      "use_proxy": false,                         // 可选，是否使用全局 proxy
-
-      // Cloudflare 专属字段
-      "api_token": "$cf_token",                   // 必需，$ 引用 env
-      "zone_id": "$cf_zone"                       // 可选，留空自动获取
-    },
-    {
-      "provider": "aliyun",
-      "zone": "example.cn",
-      "name": "www",
-      "type": "AAAA",
-      "ttl": 600,
-      "use_proxy": false,
-
-      // 阿里云专属字段
-      "access_key_id": "$ak_id",                  // 必需
-      "access_key_secret": "$ak_secret"           // 必需
-    }
-  ]
+  "aliyun": {
+    "access_key_id": "AccessKey ID",
+    "access_key_secret": "AccessKey Secret",
+    "records": [
+      {
+        "name": "www.example.cn",
+        "ttl": 600,
+        "use_proxy": false
+      }
+    ]
+  }
 }
 ```
 
-### 服务商对比
-
-| | Cloudflare | 阿里云 |
-|--|-----------|--------|
-| **认证** | API Token | AccessKey ID + Secret |
-| **权限** | `Zone:DNS:Edit` | `AliyunDNSFullAccess` |
-| **代理** | ✅ HTTP/SOCKS5 | ❌ 不支持 |
-| **Zone ID** | 留空自动获取 | — |
-
-## 命令行
-
-```
-ramddns <command> [options]
-```
-
-| 命令 | 说明 |
+| 字段 | 含义 |
 |------|------|
-| `run` | 执行 DDNS 更新 |
-| `version` | 显示版本信息 |
+| `interface` | 网卡名。Linux 上例如 `eth0`，FreeBSD 上例如 `vtnet0`。和 `fallback_urls` 至少写一个 |
+| `fallback_urls` | 网卡获取失败时按顺序尝试的 HTTP 地址。这些请求不走代理，也没有真实的地址生命周期 |
+| `proxy` | DNS API 代理，支持 `http`、`https`、`socks5`、`socks5h`。留空表示不使用 |
+| `cloudflare.token` | Cloudflare API Token，需要 `Zone:DNS:Edit` |
+| `aliyun.access_key_id` / `access_key_secret` | 阿里云密钥，需要 `AliyunDNSFullAccess` |
+| `records[].name` | 完整域名。`example.com` 是根域名，`www.example.com` 的主机记录是 `www` |
+| `records[].zone_id` | 仅 Cloudflare。留空则查询后写入 `cache.zoneid.json`，不回写配置文件 |
+| `records[].ttl` | 可选。Cloudflare 缺省 180，阿里云缺省 600 |
+| `records[].proxied` | 仅 Cloudflare，是否开启橙云，默认 false |
+| `records[].use_proxy` | 为 true 时，这条记录的 API 请求走全局 `proxy`。Cloudflare 和阿里云都可以 |
 
-`run` 命令参数：
+`example.com.cn` 这种多段公共后缀的根域名，和它下面的主机无法从名字本身区分开。根域名请写成只有两段的名字，或者把主机写在最左边，例如 `www.example.com.cn`。
 
-| 参数 | 简写 | 默认值 | 说明 |
-|------|------|--------|------|
-| `--config` | `-c` | 无 | 配置文件路径 |
-| `--dir` | `-d` | 无 | 工作目录（存放缓存文件 `cache.lastip`） |
-| `--ignore-cache` | `-i` | false | 忽略缓存，强制更新 |
-| `--timeout` | `-t` | 300 | 超时时间（秒） |
+选出地址时丢掉链路本地、ULA、环回和已弃用地址。剩下的全局单播里，取 preferred lifetime 最长的。生命周期用内核原始的 pltime/vltime，和 `ifconfig` 不加 `-L` 时一致。`0xffffffff` 视为永久。
 
-## 工作原理
+IP 没变则跳过更新。缓存文件 `cache.lastip` 只保留最后一次 IP，放在配置文件旁边；`-d` 可以改目录。旧的「时间 IP」多行缓存仍能读出最后一条。
 
+## 运行
+
+```bash
+./build/ramddns run -c config.json
+./build/ramddns run -c /etc/ramddns/config.json -d /etc/ramddns
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│ 获取 IPv6   │ ──▶ │ 筛选最佳地址  │ ──▶ │ 更新 DNS    │
-│ 网卡 / API  │     │ 全局单播+最长 │     │ Cloudflare  │
-│             │     │ 首选生命周期  │     │ 阿里云      │
-└─────────────┘     └──────────────┘     └─────────────┘
-                            │
-                    缓存 IP 不变化
-                    则跳过 API 调用
-```
 
-## 部署
+| 参数 | 简写 | 默认 | 说明 |
+|------|------|------|------|
+| `--config` | `-c` | 无 | 配置文件 |
+| `--dir` | `-d` | 配置文件所在目录 | 缓存目录 |
+| `--ignore` | `-i` | false | 忽略缓存，强制更新，并且不写缓存 |
+| `--timeout` | `-t` | 300 | 超时（秒） |
 
-### systemd（推荐）
+`version` 打印版本。
+
+### systemd
 
 `/etc/systemd/system/ramddns.service`：
 
 ```ini
 [Unit]
-Description=Ramddns DDNS Client
+Description=ramddns DDNS Client
 After=network-online.target
 Wants=network-online.target
 
@@ -180,7 +126,7 @@ WantedBy=multi-user.target
 
 ```ini
 [Unit]
-Description=Run Ramddns DDNS every 10 minutes
+Description=Run ramddns every 10 minutes
 Requires=ramddns.service
 
 [Timer]
@@ -192,35 +138,15 @@ Unit=ramddns.service
 WantedBy=timers.target
 ```
 
-启用：
-
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now ramddns.timer
 ```
 
-### Crontab
+日志在 stdout。systemd 下用 `journalctl -u ramddns.service` 查看。
 
-```bash
-*/10 * * * * /usr/local/bin/ramddns run -c /etc/ramddns/config.json -d /etc/ramddns >> /var/log/ramddns.log 2>&1
-```
+## 许可
 
-## 故障排查
+BSD-3-Clause。见 [LICENSE](LICENSE)。
 
-| 错误 | 解决方案 |
-|------|----------|
-| `无可用 IPv6 地址` | 检查网卡名称（`ip addr` 或 `ifconfig`），确保 IPv6 已启用；或改用 `urls` API 方式 |
-| `Invalid API Token` | 检查 Cloudflare Token 和 `Zone:DNS:Edit` 权限 |
-| `SignatureDoesNotMatch` | 检查阿里云 AccessKey，确保系统时间准确（NTP 同步） |
-
-日志默认输出到 stdout，systemd 用户可通过 `journalctl -u ramddns.service -f` 查看。
-
-更多故障排查见 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)。
-
-## 贡献与许可
-
-欢迎提交 Issue 和 Pull Request。详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-项目采用 **BSD-3-Clause** 许可证。
-
-致谢：[Cobra](https://github.com/spf13/cobra)、[netlink](https://github.com/vishvananda/netlink)
+依赖：[Cobra](https://github.com/spf13/cobra)、[netlink](https://github.com/vishvananda/netlink)。

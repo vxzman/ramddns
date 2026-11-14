@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/go-1.23+-00ADD8?logo=go)](https://golang.org)
 
-用 Go 写的 IPv6 DDNS 客户端。从网卡或 HTTP 接口取出当前 IPv6，更新 Cloudflare 和阿里云的 AAAA 记录。配置和 Gecko-ddns 相同。
+用 Go 写的 IPv6 DDNS 客户端。从网卡或 HTTP 接口取出当前 IPv6，更新 Cloudflare 和阿里云的 AAAA 记录。配置和 gekddns 相同。
 
 只支持 Linux 和 FreeBSD。两个平台的网卡读取都不使用 CGo。Linux 用 `vishvananda/netlink`，FreeBSD 14+ 用与 `ifconfig` 相同的 netlink 路径。
 

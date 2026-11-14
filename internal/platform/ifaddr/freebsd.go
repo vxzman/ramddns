@@ -48,7 +48,7 @@ const (
 
 	nlmsgAlignTo = 4
 
-	// Same receive buffer as Gecko-ddns ip_getter_freebsd.cpp.
+	// Same receive buffer as gekddns ip_getter_freebsd.cpp.
 	netlinkRecvBuf = 8192
 )
 
@@ -96,7 +96,7 @@ type parsedAddr struct {
 
 // GetAvailableIPv6 returns candidate IPv6 addresses and lifetimes from the named
 // interface using the Netlink RTM_GETADDR dump — the same path ifconfig
-// uses on FreeBSD 14+ (matching Gecko-ddns ip_getter_freebsd.cpp).
+// uses on FreeBSD 14+ (matching gekddns ip_getter_freebsd.cpp).
 func GetAvailableIPv6(ifaceName string) ([]IPv6Info, error) {
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {
@@ -113,7 +113,7 @@ func GetAvailableIPv6(ifaceName string) ([]IPv6Info, error) {
 	}
 	defer unix.Close(fd)
 
-	// 2. Set receive timeout (5 seconds), matching Gecko-ddns.
+	// 2. Set receive timeout (5 seconds), matching gekddns.
 	tv := unix.Timeval{Sec: 5, Usec: 0}
 	_ = unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv)
 
@@ -135,7 +135,7 @@ func GetAvailableIPv6(ifaceName string) ([]IPv6Info, error) {
 	putNlMsghdr(req, &nlh)
 	putIfAddrmsg(req[sizeofNlMsghdr:], &ifam)
 
-	// 4. send() with no destination. Same as Gecko-ddns.
+	// 4. send() with no destination. Same as gekddns.
 	if err := unix.Sendto(fd, req, 0, nil); err != nil {
 		return nil, fmt.Errorf("send(RTM_GETADDR) failed: %w", err)
 	}
@@ -305,7 +305,7 @@ func parseAddrAttrs(b []byte, a *parsedAddr) {
 
 // cacheinfoLifetimes maps FreeBSD ifa_cacheinfo to durations.
 // Missing cacheinfo and 0xffffffff are infinite. 0 is expired.
-// Same rules as Gecko-ddns ip_getter_freebsd.cpp.
+// Same rules as gekddns ip_getter_freebsd.cpp.
 func cacheinfoLifetimes(ci *ifaCacheinfo) (preferred, valid time.Duration) {
 	preferred = InfiniteLifetime
 	valid = InfiniteLifetime

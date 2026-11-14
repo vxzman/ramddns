@@ -1,9 +1,13 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
+	"runtime"
 	"strings"
+
+	"ramddns/internal/platform/ifaddr"
 )
 
 // validateConfig validates the configuration structure and required fields.
@@ -30,6 +34,21 @@ func validateConfig(cfg *Config) error {
 }
 
 func validateIPSource(ipSource *IPSource) error {
+	return validateIPSourceForOS(runtime.GOOS, ipSource)
+}
+
+func validateIPSourceForOS(goos string, ipSource *IPSource) error {
+	if ipSource.NetNS != "" {
+		if goos != "linux" {
+			return errors.New("netns is only supported on Linux")
+		}
+		if strings.TrimSpace(ipSource.Interface) == "" {
+			return errors.New("interface is required when netns is set")
+		}
+		if _, err := ifaddr.ResolveNetNSPath(ipSource.NetNS); err != nil {
+			return err
+		}
+	}
 	hasInterface := ipSource.Interface != ""
 	hasURLs := len(ipSource.FallbackURLs) > 0
 	if !hasInterface && !hasURLs {

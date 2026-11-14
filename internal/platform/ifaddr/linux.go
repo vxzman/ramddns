@@ -3,7 +3,9 @@
 package ifaddr
 
 import (
+	"errors"
 	"fmt"
+	"net/netip"
 	"time"
 
 	stdnetlink "github.com/vishvananda/netlink"
@@ -13,6 +15,10 @@ import (
 func GetAvailableIPv6(interfaceName string) ([]IPv6Info, error) {
 	link, err := stdnetlink.LinkByName(interfaceName)
 	if err != nil {
+		var missing stdnetlink.LinkNotFoundError
+		if errors.As(err, &missing) {
+			return nil, &interfaceMissingError{name: interfaceName, err: err}
+		}
 		return nil, fmt.Errorf("failed to find interface %s: %w", interfaceName, err)
 	}
 
@@ -23,12 +29,13 @@ func GetAvailableIPv6(interfaceName string) ([]IPv6Info, error) {
 
 	var infos []IPv6Info
 	for _, addr := range addrList {
-		// Skip IPv4-mapped addresses
-		if addr.IP.To4() != nil {
+		ip, ok := netip.AddrFromSlice(addr.IP)
+		if !ok {
 			continue
 		}
-		// Skip link-local addresses and loopback
-		if addr.IP.IsLinkLocalUnicast() || addr.IP.IsLoopback() {
+		ip = ip.Unmap()
+		// Skip IPv4, IPv4-mapped, link-local, and loopback.
+		if !ip.Is6() || ip.Is4() || ip.IsLinkLocalUnicast() || ip.IsLoopback() {
 			continue
 		}
 
@@ -47,7 +54,7 @@ func GetAvailableIPv6(interfaceName string) ([]IPv6Info, error) {
 		}
 
 		info := IPv6Info{
-			IP:           addr.IP,
+			IP:           ip,
 			PreferredLft: prefLft,
 			ValidLft:     validLft,
 		}
@@ -62,4 +69,18 @@ func GetAvailableIPv6(interfaceName string) ([]IPv6Info, error) {
 	}
 
 	return infos, nil
+}
+
+// interfaceMissingError is one log line and still matches ErrInterfaceNotFound.
+type interfaceMissingError struct {
+	name string
+	err  error
+}
+
+func (e *interfaceMissingError) Error() string {
+	return fmt.Sprintf("failed to find interface %s: %s", e.name, e.err.Error())
+}
+
+func (e *interfaceMissingError) Unwrap() []error {
+	return []error{ErrInterfaceNotFound, e.err}
 }

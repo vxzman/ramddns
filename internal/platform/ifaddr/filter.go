@@ -1,22 +1,25 @@
 package ifaddr
 
 import (
+	"cmp"
 	"errors"
-	"net"
+	"net/netip"
+	"slices"
 	"time"
 )
 
 // PopulateInfo fills in derived fields of IPv6Info based on IP and lifetimes.
 // All platform implementations should call this after obtaining raw address data.
 func PopulateInfo(info *IPv6Info) {
-	if info.IP == nil {
+	if info == nil || !info.IP.IsValid() {
 		return
 	}
 
-	ipBytes := info.IP
-	info.IsUniqueLocal = ipBytes[0] == 0xfc || ipBytes[0] == 0xfd
+	addr := info.IP.Unmap()
+	info.IP = addr
+	info.IsUniqueLocal = addr.Is6() && addr.IsPrivate()
 
-	if info.IP.IsLinkLocalUnicast() {
+	if addr.IsLinkLocalUnicast() {
 		info.Scope = "Link Local"
 	} else if info.IsUniqueLocal {
 		info.Scope = "Unique Local (ULA)"
@@ -36,24 +39,31 @@ func PopulateInfo(info *IPv6Info) {
 		info.AddressState = "Preferred/Static"
 	}
 
-	info.IsCandidate = info.Scope == "Global Unicast" && !info.IsDeprecated && !info.IsUniqueLocal && info.ValidLft.Seconds() > 0
+	info.IsCandidate = addr.Is6() && info.Scope == "Global Unicast" && !info.IsDeprecated && !info.IsUniqueLocal && info.ValidLft.Seconds() > 0
 }
 
 // IsPrivateOrLocalIP returns true for non-global addresses.
-func IsPrivateOrLocalIP(ip net.IP) bool {
-	if ip == nil {
+func IsPrivateOrLocalIP(ip netip.Addr) bool {
+	if !ip.IsValid() {
 		return true
 	}
-	if ip.IsLinkLocalUnicast() {
+	ip = ip.Unmap()
+	if !ip.Is6() || ip.Is4() {
 		return true
 	}
-	if ip[0] == 0xfc || ip[0] == 0xfd {
-		return true
+	return ip.IsLinkLocalUnicast() || ip.IsPrivate() || ip.IsLoopback()
+}
+
+// BestBy returns the item with the greatest key. Ties keep the first item.
+func BestBy[T any](items []T, key func(T) time.Duration) (T, bool) {
+	if len(items) == 0 {
+		var zero T
+		return zero, false
 	}
-	if ip.IsLoopback() {
-		return true
-	}
-	return false
+	best := slices.MaxFunc(items, func(a, b T) int {
+		return cmp.Compare(key(a), key(b))
+	})
+	return best, true
 }
 
 // FilterValidAddresses filters IPv6 addresses suitable for DDNS.
@@ -65,13 +75,11 @@ func IsPrivateOrLocalIP(ip net.IP) bool {
 func FilterValidAddresses(infos []IPv6Info) []IPv6Info {
 	var out []IPv6Info
 	for _, info := range infos {
-		if info.IP == nil {
+		addr := info.IP.Unmap()
+		if !addr.IsValid() || !addr.Is6() || addr.Is4() {
 			continue
 		}
-		if info.IP.To4() != nil {
-			continue
-		}
-		if info.IP.IsLinkLocalUnicast() || info.IP.IsLoopback() {
+		if addr.IsLinkLocalUnicast() || addr.IsLoopback() {
 			continue
 		}
 		if info.ValidLft.Seconds() == 0 {
@@ -84,23 +92,25 @@ func FilterValidAddresses(infos []IPv6Info) []IPv6Info {
 	return out
 }
 
+// SelectBestInfo selects the candidate with the longest preferred lifetime.
+// The filter rules are the same ones SelectBestIPv6 has always used.
+func SelectBestInfo(infos []IPv6Info) (IPv6Info, error) {
+	candidates := FilterValidAddresses(infos)
+	best, ok := BestBy(candidates, func(info IPv6Info) time.Duration {
+		return info.PreferredLft
+	})
+	if !ok || !best.IP.IsValid() {
+		return IPv6Info{}, errors.New("no suitable DDNS Candidate (Global Unicast, not deprecated) found")
+	}
+	return best, nil
+}
+
 // SelectBestIPv6 selects the best IPv6 address based on PreferredLft.
 // Returns the address with the longest preferred lifetime.
 func SelectBestIPv6(infos []IPv6Info) (string, error) {
-	candidates := FilterValidAddresses(infos)
-
-	if len(candidates) == 0 {
-		return "", errors.New("no suitable DDNS Candidate (Global Unicast, not deprecated) found")
+	best, err := SelectBestInfo(infos)
+	if err != nil {
+		return "", err
 	}
-
-	var bestCandidate IPv6Info
-	maxPreferredLft := time.Duration(0)
-	for _, info := range candidates {
-		if info.PreferredLft > maxPreferredLft {
-			maxPreferredLft = info.PreferredLft
-			bestCandidate = info
-		}
-	}
-
-	return bestCandidate.IP.String(), nil
+	return best.IP.String(), nil
 }

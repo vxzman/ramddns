@@ -14,6 +14,7 @@ import (
 
 // IPSource specifies how to obtain the current IPv6 address.
 type IPSource struct {
+	NetNS        string
 	Interface    string
 	FallbackURLs []string
 }
@@ -43,6 +44,7 @@ type Config struct {
 }
 
 type fileConfig struct {
+	NetNS        string          `json:"netns"`
 	Interface    string          `json:"interface"`
 	FallbackURLs []string        `json:"fallback_urls"`
 	Proxy        string          `json:"proxy"`
@@ -82,19 +84,19 @@ func ReadConfig(path string, quiet bool) (*Config, string) {
 
 	configFile, err := filepath.Abs(path)
 	if err != nil {
-		log.Error("Failed to resolve config path: %v", err)
+		log.Error("Failed to resolve config path", "err", err)
 		return nil, ""
 	}
 
 	data, err := os.ReadFile(configFile)
 	if err != nil {
-		log.Error("Failed to read config file: %v", err)
+		log.Error("Failed to read config file", "err", err)
 		return nil, ""
 	}
 
 	cfg, err := parseConfig(data)
 	if err != nil {
-		log.Error("Invalid config: %v", err)
+		log.Error("Invalid config", "err", err)
 		return nil, ""
 	}
 	return cfg, configFile
@@ -115,6 +117,7 @@ func parseConfig(data []byte) (*Config, error) {
 	cfg := &Config{
 		Proxy: strings.TrimSpace(file.Proxy),
 	}
+	cfg.IPSource.NetNS = strings.TrimSpace(file.NetNS)
 	cfg.IPSource.Interface = strings.TrimSpace(file.Interface)
 	for _, rawURL := range file.FallbackURLs {
 		url := strings.TrimSpace(rawURL)
@@ -138,6 +141,22 @@ func parseConfig(data []byte) (*Config, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// ApplyNetNSOverride replaces the configured netns when name is non-empty.
+// An empty name keeps the file value.
+func ApplyNetNSOverride(cfg *Config, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" || cfg == nil {
+		return nil
+	}
+	next := cfg.IPSource
+	next.NetNS = name
+	if err := validateIPSource(&next); err != nil {
+		return err
+	}
+	cfg.IPSource = next
+	return nil
 }
 
 func appendCloudflare(cfg *Config, cf *fileCloudflare) error {
@@ -249,7 +268,7 @@ func RecordFQDN(record *RecordConfig) string {
 func GetCacheFilePath(configFile string, workDir string) string {
 	if workDir != "" {
 		if err := os.MkdirAll(workDir, 0755); err != nil {
-			log.Error("Warning: Failed to create work_dir '%s'. Falling back to config file directory. Error: %v", workDir, err)
+			log.Error("Failed to create work dir; falling back to the config directory", "dir", workDir, "err", err)
 			return filepath.Join(filepath.Dir(configFile), "cache.lastip")
 		}
 		return filepath.Join(workDir, "cache.lastip")

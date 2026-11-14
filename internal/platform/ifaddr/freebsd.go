@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -206,15 +207,20 @@ func GetAvailableIPv6(ifaceName string) ([]IPv6Info, error) {
 						}
 
 						if chosen != nil && chosen.To4() == nil && !chosen.IsLinkLocalUnicast() && !chosen.IsLoopback() {
-							prefLft, validLft := cacheinfoLifetimes(parsed.Cacheinfo)
-							info := IPv6Info{
-								IP:           chosen,
-								PreferredLft: prefLft,
-								ValidLft:     validLft,
-							}
-							PopulateInfo(&info)
-							if info.IsCandidate {
-								infos = append(infos, info)
+							if ip, ok := netip.AddrFromSlice(chosen); ok {
+								ip = ip.Unmap()
+								if ip.Is6() && !ip.IsLinkLocalUnicast() && !ip.IsLoopback() {
+									prefLft, validLft := cacheinfoLifetimes(parsed.Cacheinfo)
+									info := IPv6Info{
+										IP:           ip,
+										PreferredLft: prefLft,
+										ValidLft:     validLft,
+									}
+									PopulateInfo(&info)
+									if info.IsCandidate {
+										infos = append(infos, info)
+									}
+								}
 							}
 						}
 					}

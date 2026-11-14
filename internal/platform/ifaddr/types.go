@@ -1,7 +1,8 @@
 package ifaddr
 
 import (
-	"net"
+	"errors"
+	"net/netip"
 	"time"
 )
 
@@ -9,10 +10,13 @@ import (
 // addresses and API-obtained addresses. 100 years — safe within int64 nanosecond range.
 const InfiniteLifetime = time.Hour * 24 * 365 * 100
 
+// ErrInterfaceNotFound is returned when the named interface does not exist.
+var ErrInterfaceNotFound = errors.New("interface not found")
+
 // IPv6Info contains information about an IPv6 address.
 // This is the unified structure used across all platforms.
 type IPv6Info struct {
-	IP            net.IP
+	IP            netip.Addr
 	Scope         string
 	AddressState  string
 	PreferredLft  time.Duration

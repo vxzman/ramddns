@@ -125,6 +125,10 @@ func TestParseConfigRejects(t *testing.T) {
 		{name: "proxy without url", raw: `{"interface":"eth0","cloudflare":{"token":"t","records":[{"name":"example.com","use_proxy":true}]}}`, want: "use_proxy"},
 		{name: "bad proxy scheme", raw: `{"interface":"eth0","proxy":"ftp://127.0.0.1","cloudflare":{"token":"t","records":[{"name":"example.com"}]}}`, want: "unsupported proxy"},
 		{name: "one label", raw: `{"interface":"eth0","cloudflare":{"token":"t","records":[{"name":"localhost"}]}}`, want: "two labels"},
+		{name: "netns without interface", raw: `{"netns":"vpn","fallback_urls":["https://ipv6.example"],"cloudflare":{"token":"t","records":[{"name":"example.com"}]}}`, want: "interface is required when netns is set"},
+		{name: "netns dotdot", raw: `{"netns":"../vpn","interface":"eth0","cloudflare":{"token":"t","records":[{"name":"example.com"}]}}`, want: "invalid netns name"},
+		{name: "netns embedded dotdot", raw: `{"netns":"a..b","interface":"eth0","cloudflare":{"token":"t","records":[{"name":"example.com"}]}}`, want: "invalid netns name"},
+		{name: "netns path escape", raw: `{"netns":"/etc/passwd","interface":"eth0","cloudflare":{"token":"t","records":[{"name":"example.com"}]}}`, want: "invalid netns name"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -136,6 +140,51 @@ func TestParseConfigRejects(t *testing.T) {
 				t.Errorf("error = %v, want substring %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestParseNetNS(t *testing.T) {
+	raw := []byte(`{
+	  "netns": "vpn",
+	  "interface": "vpn-mv",
+	  "cloudflare": {"token": "t", "records": [{"name": "example.com"}]}
+	}`)
+	cfg, err := parseConfig(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.IPSource.NetNS != "vpn" || cfg.IPSource.Interface != "vpn-mv" {
+		t.Fatalf("ip source = %+v", cfg.IPSource)
+	}
+}
+
+func TestNetNSOSAndOverride(t *testing.T) {
+	src := &IPSource{NetNS: "vpn", Interface: "eth0"}
+	if err := validateIPSourceForOS("freebsd", src); err == nil || !strings.Contains(err.Error(), "netns is only supported on Linux") {
+		t.Fatalf("freebsd error = %v", err)
+	}
+	if err := validateIPSourceForOS("linux", src); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &Config{IPSource: IPSource{NetNS: "vpn", Interface: "eth0", FallbackURLs: []string{"https://ipv6.example"}}}
+	if err := ApplyNetNSOverride(cfg, ""); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.IPSource.NetNS != "vpn" {
+		t.Fatalf("empty override cleared netns: %+v", cfg.IPSource)
+	}
+	if err := ApplyNetNSOverride(cfg, "other"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.IPSource.NetNS != "other" {
+		t.Fatalf("override = %+v", cfg.IPSource)
+	}
+	if err := ApplyNetNSOverride(cfg, "../vpn"); err == nil {
+		t.Fatal("bad override was accepted")
+	}
+	if cfg.IPSource.NetNS != "other" {
+		t.Fatalf("failed override changed netns: %+v", cfg.IPSource)
 	}
 }
 
